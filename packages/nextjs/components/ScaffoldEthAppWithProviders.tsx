@@ -55,12 +55,14 @@ export const ScaffoldEthAppWithProviders = ({
   header = true,
   footer = true,
   faucet = true,
+  reconnectOnMount = false,
 }: {
   children: React.ReactNode;
   headerMenuLinks?: HeaderMenuLink[];
   header?: boolean;
   footer?: boolean;
   faucet?: boolean;
+  reconnectOnMount?: boolean;
 }) => {
   const { resolvedTheme } = useTheme();
   const isDarkMode = resolvedTheme === "dark";
@@ -71,7 +73,7 @@ export const ScaffoldEthAppWithProviders = ({
   }, []);
 
   return (
-    <WagmiProvider config={wagmiConfig}>
+    <WagmiProvider config={wagmiConfig} reconnectOnMount={reconnectOnMount}>
       <QueryClientProvider client={queryClient}>
         <ProgressBar height="3px" color="#2299dd" />
         <RainbowKitProvider

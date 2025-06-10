@@ -12,7 +12,9 @@ export const AuthGuard = ({ children }: { children: React.ReactNode }) => {
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
-    setMounted(true);
+    setTimeout(() => {
+      setMounted(true);
+    }, 2000);
   }, []);
 
   useEffect(() => {

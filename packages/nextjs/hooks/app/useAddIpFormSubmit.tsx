@@ -1,15 +1,20 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { useAccount } from "wagmi";
 import { usePopUp } from "~~/components/popup/PopUpContext";
-import deployedContracts from "~~/contracts/deployedContracts";
+import { useScaffoldWriteContract } from "~~/hooks/scaffold-eth";
 import { StorageAdapter } from "~~/services/adapter/Adapter";
 import PinataJsonAdapter from "~~/services/adapter/PinataJsonAdapter";
 
 export function useAddIpFormSubmit() {
   const router = useRouter();
+  const { address } = useAccount();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const { closePopUp } = usePopUp();
+  const { writeContractAsync } = useScaffoldWriteContract({
+    contractName: "PatentERC721",
+  });
   const adapter: StorageAdapter<JSON, string> = new PinataJsonAdapter();
 
   const uploadIpJsonToStorage: (data: FormData) => Promise<string | undefined> = async (data: FormData) => {
@@ -23,7 +28,10 @@ export function useAddIpFormSubmit() {
   };
 
   const mintIpNft = async (ipfsUrl: string) => {
-    console.log(deployedContracts, ipfsUrl);
+    await writeContractAsync({
+      functionName: "mint",
+      args: [address, ipfsUrl],
+    });
   };
 
   const handleSubmit = async (data: FormData) => {
@@ -31,11 +39,17 @@ export function useAddIpFormSubmit() {
     setError(null);
     uploadIpJsonToStorage(data).then(ipfsUrl => {
       if (ipfsUrl) {
-        mintIpNft(ipfsUrl).then(() => {
-          setIsLoading(false);
-          closePopUp();
-          router.push("/app/ip");
-        });
+        mintIpNft(ipfsUrl)
+          .then(() => {
+            setIsLoading(false);
+            closePopUp();
+            router.push("/app/ip");
+          })
+          .catch(error => {
+            setIsLoading(false);
+            setError(error as string);
+            closePopUp();
+          });
       }
     });
   };

@@ -7,7 +7,7 @@ export const metadata = getMetadata({ title: "Scaffold-ETH 2 App", description: 
 
 const ScaffoldEthApp = ({ children }: { children: React.ReactNode }) => {
   return (
-    <ScaffoldEthAppWithProviders header={false} footer={false}>
+    <ScaffoldEthAppWithProviders header={false} footer={false} reconnectOnMount={false}>
       {children}
     </ScaffoldEthAppWithProviders>
   );
