@@ -4,36 +4,24 @@ import React, { useRef } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { RainbowKitCustomConnectButton } from "./scaffold-eth/RainbowKitCustomConnectButton";
 import { hardhat } from "viem/chains";
-import { Bars3Icon, BugAntIcon } from "@heroicons/react/24/outline";
-import { FaucetButton, RainbowKitCustomConnectButton } from "~~/components/scaffold-eth";
+import { Bars3Icon } from "@heroicons/react/24/outline";
+import { FaucetButton } from "~~/components/scaffold-eth";
 import { useOutsideClick, useTargetNetwork } from "~~/hooks/scaffold-eth";
 
-type HeaderMenuLink = {
+export type HeaderMenuLink = {
   label: string;
   href: string;
   icon?: React.ReactNode;
 };
 
-export const menuLinks: HeaderMenuLink[] = [
-  {
-    label: "Home",
-    href: "/",
-  },
-
-  {
-    label: "Debug Contracts",
-    href: "/debug",
-    icon: <BugAntIcon className="h-4 w-4" />,
-  },
-];
-
-export const HeaderMenuLinks = () => {
+export const HeaderMenuLinks = ({ menuLinks }: { menuLinks?: HeaderMenuLink[] }) => {
   const pathname = usePathname();
 
   return (
     <>
-      {menuLinks.map(({ label, href, icon }) => {
+      {menuLinks?.map(({ label, href, icon }) => {
         const isActive = pathname === href;
         return (
           <li key={href}>
@@ -57,7 +45,7 @@ export const HeaderMenuLinks = () => {
 /**
  * Site header
  */
-export const Header = () => {
+export const Header = ({ menuLinks, faucet }: { menuLinks?: HeaderMenuLink[]; faucet?: boolean }) => {
   const { targetNetwork } = useTargetNetwork();
   const isLocalNetwork = targetNetwork.id === hardhat.id;
 
@@ -79,7 +67,7 @@ export const Header = () => {
               burgerMenuRef?.current?.removeAttribute("open");
             }}
           >
-            <HeaderMenuLinks />
+            <HeaderMenuLinks menuLinks={menuLinks} />
           </ul>
         </details>
         <Link href="/" passHref className="hidden lg:flex items-center gap-2 ml-4 mr-6 shrink-0">
@@ -92,12 +80,16 @@ export const Header = () => {
           </div>
         </Link>
         <ul className="hidden lg:flex lg:flex-nowrap menu menu-horizontal px-1 gap-2">
-          <HeaderMenuLinks />
+          <HeaderMenuLinks menuLinks={menuLinks} />
         </ul>
       </div>
       <div className="navbar-end grow mr-4">
-        <RainbowKitCustomConnectButton />
-        {isLocalNetwork && <FaucetButton />}
+        <RainbowKitCustomConnectButton
+          text="Connect Web3 Wallet"
+          icon={<img className="w-6 h-6" src="/app/web3-wallet.svg" alt="Web3 wallet" />}
+          className="btn btn-primary btn-sm"
+        />
+        {isLocalNetwork && faucet && <FaucetButton />}
       </div>
     </div>
   );

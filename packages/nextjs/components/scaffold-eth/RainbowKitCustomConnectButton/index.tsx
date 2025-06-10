@@ -1,12 +1,15 @@
 "use client";
 
 // @refresh reset
+import { Dispatch, SetStateAction, useEffect } from "react";
 import { Balance } from "../Balance";
 import { AddressInfoDropdown } from "./AddressInfoDropdown";
 import { AddressQRCodeModal } from "./AddressQRCodeModal";
 import { WrongNetworkDropdown } from "./WrongNetworkDropdown";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 import { Address } from "viem";
+import { useAccount } from "wagmi";
+import LoginButton from "~~/app/app/_components/Button";
 import { useNetworkColor } from "~~/hooks/scaffold-eth";
 import { useTargetNetwork } from "~~/hooks/scaffold-eth/useTargetNetwork";
 import { getBlockExplorerAddressLink } from "~~/utils/scaffold-eth";
@@ -14,9 +17,28 @@ import { getBlockExplorerAddressLink } from "~~/utils/scaffold-eth";
 /**
  * Custom Wagmi Connect Button (watch balance + custom design)
  */
-export const RainbowKitCustomConnectButton = () => {
+export const RainbowKitCustomConnectButton = ({
+  text,
+  icon,
+  className = "",
+  dropdown = true,
+  setIsLoggedIn,
+}: {
+  text: string;
+  icon: React.ReactNode;
+  className?: string;
+  dropdown?: boolean;
+  setIsLoggedIn?: Dispatch<SetStateAction<boolean>>;
+}) => {
   const networkColor = useNetworkColor();
   const { targetNetwork } = useTargetNetwork();
+  const { isConnected } = useAccount();
+
+  useEffect(() => {
+    if (isConnected) {
+      setIsLoggedIn?.(true);
+    }
+  }, [isConnected, setIsLoggedIn]);
 
   return (
     <ConnectButton.Custom>
@@ -29,12 +51,8 @@ export const RainbowKitCustomConnectButton = () => {
         return (
           <>
             {(() => {
-              if (!connected) {
-                return (
-                  <button className="btn btn-primary btn-sm" onClick={openConnectModal} type="button">
-                    Connect Wallet
-                  </button>
-                );
+              if (!connected || !dropdown) {
+                return <LoginButton text={text} icon={icon} onClick={openConnectModal} className={className} />;
               }
 
               if (chain.unsupported || chain.id !== targetNetwork.id) {

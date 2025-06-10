@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { HeaderMenuLink } from "./Header";
 import { RainbowKitProvider, darkTheme, lightTheme } from "@rainbow-me/rainbowkit";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AppProgressBar as ProgressBar } from "next-nprogress-bar";
@@ -13,15 +14,27 @@ import { BlockieAvatar } from "~~/components/scaffold-eth";
 import { useInitializeNativeCurrencyPrice } from "~~/hooks/scaffold-eth";
 import { wagmiConfig } from "~~/services/web3/wagmiConfig";
 
-const ScaffoldEthApp = ({ children }: { children: React.ReactNode }) => {
+const ScaffoldEthApp = ({
+  children,
+  headerMenuLinks,
+  header,
+  footer,
+  faucet,
+}: {
+  children: React.ReactNode;
+  headerMenuLinks?: HeaderMenuLink[];
+  header?: boolean;
+  footer?: boolean;
+  faucet?: boolean;
+}) => {
   useInitializeNativeCurrencyPrice();
 
   return (
     <>
       <div className={`flex flex-col min-h-screen `}>
-        <Header />
+        {header && <Header menuLinks={headerMenuLinks} faucet={faucet} />}
         <main className="relative flex flex-col flex-1">{children}</main>
-        <Footer />
+        {footer && <Footer />}
       </div>
       <Toaster />
     </>
@@ -36,7 +49,19 @@ export const queryClient = new QueryClient({
   },
 });
 
-export const ScaffoldEthAppWithProviders = ({ children }: { children: React.ReactNode }) => {
+export const ScaffoldEthAppWithProviders = ({
+  children,
+  headerMenuLinks,
+  header = true,
+  footer = true,
+  faucet = true,
+}: {
+  children: React.ReactNode;
+  headerMenuLinks?: HeaderMenuLink[];
+  header?: boolean;
+  footer?: boolean;
+  faucet?: boolean;
+}) => {
   const { resolvedTheme } = useTheme();
   const isDarkMode = resolvedTheme === "dark";
   const [mounted, setMounted] = useState(false);
@@ -53,7 +78,9 @@ export const ScaffoldEthAppWithProviders = ({ children }: { children: React.Reac
           avatar={BlockieAvatar}
           theme={mounted ? (isDarkMode ? darkTheme() : lightTheme()) : lightTheme()}
         >
-          <ScaffoldEthApp>{children}</ScaffoldEthApp>
+          <ScaffoldEthApp headerMenuLinks={headerMenuLinks} header={header} footer={footer} faucet={faucet}>
+            {children}
+          </ScaffoldEthApp>
         </RainbowKitProvider>
       </QueryClientProvider>
     </WagmiProvider>

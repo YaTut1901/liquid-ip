@@ -1,7 +1,7 @@
 import fs from "fs";
 import path from "path";
 import { foundry } from "viem/chains";
-import { AddressComponent } from "~~/app/blockexplorer/_components/AddressComponent";
+import { AddressComponent } from "~~/app/(default)/blockexplorer/_components/AddressComponent";
 import deployedContracts from "~~/contracts/deployedContracts";
 import { isZeroAddress } from "~~/utils/scaffold-eth/common";
 import { GenericContractsDeclaration } from "~~/utils/scaffold-eth/contract";
@@ -50,6 +50,7 @@ const getContractData = async (address: string) => {
     "..",
     "..",
     "..",
+    "..",
     "foundry",
     "out",
     "build-info",
@@ -59,7 +60,7 @@ const getContractData = async (address: string) => {
     throw new Error(`Directory ${buildInfoDirectory} not found.`);
   }
 
-  const deployedContractsOnChain = contracts ? contracts[chainId] : {};
+  const deployedContractsOnChain = contracts && Object.keys(contracts).length > 0 ? contracts[chainId] : {};
   for (const [contractName, contractInfo] of Object.entries(deployedContractsOnChain)) {
     if (contractInfo.address.toLowerCase() === address.toLowerCase()) {
       contractPath = `contracts/${contractName}.sol`;
