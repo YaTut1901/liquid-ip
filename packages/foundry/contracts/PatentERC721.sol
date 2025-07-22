@@ -10,7 +10,7 @@ contract PatentERC721 is ERC721URIStorage {
 
     function mint(address to, string memory uri) external {
         uint256 tokenId = _nextTokenId++;
-        _mint(to, tokenId);
+        _safeMint(to, tokenId);
         _setTokenURI(tokenId, uri);
     }
 }

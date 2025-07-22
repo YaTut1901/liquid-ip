@@ -3,13 +3,18 @@
 import React, { useState } from "react";
 import { useAddIpFormSubmit } from "~~/hooks/app";
 
+export interface Patent {
+  name: string;
+  url: string;
+}
+
 const AddIpForm: React.FC = () => {
   const { handleSubmit, isLoading } = useAddIpFormSubmit();
 
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<Patent>({
     name: "",
     url: "",
-  });
+  } as Patent);
 
   const handleSubmitForm = (e: React.FormEvent) => {
     e.preventDefault();

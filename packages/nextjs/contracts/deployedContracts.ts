@@ -16,6 +16,19 @@ const deployedContracts = {
         },
         {
           type: "function",
+          name: "_nextTokenId",
+          inputs: [],
+          outputs: [
+            {
+              name: "",
+              type: "uint256",
+              internalType: "uint256",
+            },
+          ],
+          stateMutability: "view",
+        },
+        {
+          type: "function",
           name: "approve",
           inputs: [
             {
@@ -499,7 +512,7 @@ const deployedContracts = {
         },
       ],
       inheritedFunctions: {},
-      deploymentFile: "run-1749568590.json",
+      deploymentFile: "run-1749663732.json",
       deploymentScript: "Deploy.s.sol",
     },
   },

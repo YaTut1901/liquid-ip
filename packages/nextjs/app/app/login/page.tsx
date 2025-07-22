@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import Logo from "../../../components/assets/LiquidIpLogo";
 import LoginButton from "../_components/Button";
 import { RegisterForm } from "./_components/RegisterForm";
@@ -15,10 +15,11 @@ const handleComingSoon = () => {
 const LoginPage: NextPage = () => {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const router = useRouter();
+  const searchParams = useSearchParams();
 
   useEffect(() => {
     if (isLoggedIn) {
-      router.push("/app");
+      router.push(searchParams.get("from") || "/app");
     }
   }, [isLoggedIn, router]);
 

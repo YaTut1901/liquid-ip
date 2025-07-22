@@ -160,3 +160,16 @@
 .animate-fadeIn {
   animation: fadeIn 0.3s ease-in-out forwards;
 }
+
+.embla {
+  overflow: hidden;
+  width: 100%;
+}
+.embla__container {
+  display: flex;
+}
+.embla__slide {
+  min-width: 100%;
+  padding: 1rem;
+  box-sizing: border-box;
+}

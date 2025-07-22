@@ -21,14 +21,18 @@ class PinataJsonAdapter extends StorageAdapter<JSON, string> {
   }
 
   async read(id: string): Promise<JSON> {
-    try {
-      const response: GetCIDResponse = await this.pinataClient.gateways.public.get(id);
-      console.log("Pinata JSON read response: ", response);
-      return response.data as JSON;
-    } catch (error) {
-      console.error("Pinata JSON read error: ", error);
-      throw new Error(`Failed to upload to ipfs: ${error instanceof Error ? error.message : String(error)}`);
-    }
+    return new Promise((resolve, reject) => {
+      this.pinataClient.gateways.public
+        .get(id)
+        .then((response: GetCIDResponse) => {
+          console.log("Pinata JSON read response: ", response);
+          resolve(response.data as JSON);
+        })
+        .catch((error: unknown) => {
+          console.error("Pinata JSON read error: ", error);
+          reject(new Error(`Failed to read from ipfs: ${error instanceof Error ? error.message : String(error)}`));
+        });
+    });
   }
 
   async write(data: JSON): Promise<string> {
