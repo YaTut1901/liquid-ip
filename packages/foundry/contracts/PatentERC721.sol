@@ -6,11 +6,13 @@ import "@openzeppelin/contracts/token/ERC721/extensions/ERC721URIStorage.sol";
 contract PatentERC721 is ERC721URIStorage {
     uint256 public _nextTokenId;
 
-    constructor() ERC721("Patent NFT", "PNFT") {}
+    constructor() ERC721("Patent NFT", "PNFT") {
+        _nextTokenId = 1;
+    }
 
     function mint(address to, string memory uri) external {
-        uint256 tokenId = _nextTokenId++;
-        _safeMint(to, tokenId);
-        _setTokenURI(tokenId, uri);
+        _safeMint(to, _nextTokenId);
+        _setTokenURI(_nextTokenId, uri);
+        _nextTokenId++;
     }
 }
