@@ -20,7 +20,8 @@ contract LicenseHook is BaseHook {
     error LicenseHook_AssetNotLicense();
     error LicenseHook_NumeraireNotAllowed();
     error LicenseHook_InvalidCurveTickRange();
-    
+    error LicenseHook_UnathorizedPoolInitialization();
+
     int24 public constant TICK_SPACING = 30;
     address public immutable patentErc721;
 
@@ -39,20 +40,36 @@ contract LicenseHook is BaseHook {
         }
     }
 
+    /// @notice Creates a new licence distribution campaign, expects that patent is already registered as NFT and licence token is already emitted
+    /// @dev Call PoolManager to create a pool, save provided parameters as this pool state
+    /// @param asset address of licence token, mandatory to be an address of contract with type LicenseERC20 and that msg.sender is an owner of NFT with licence patent id
+    /// @param numeraire address of stablecoin which payment is made, mandatory to be one of whitelisted tokens
+    /// @param startingTick tick where curve starts       0  1 [2  3  4  5] 6
+    /// @param curveTickRange length of curve in ticks -> \  \  \  \  \  \  \ - curve is defined between 2nd and 5th tick, where all liquidity mandatory placed, other ticks are empty
     function initialize(
         address asset,
         address numeraire,
         int24 startingTick,
         int24 curveTickRange
     ) external {
-        require(LicenseERC20(asset).patentId() != 0, LicenseHook_AssetNotLicense());
+        uint256 patentId;
+        try LicenseERC20(asset).patentId() returns (uint256 _patentId) {
+            patentId = _patentId;
+        } catch {
+            revert LicenseHook_AssetNotLicense();
+        }
         require(
-            IERC721(patentErc721).ownerOf(LicenseERC20(asset).patentId()) ==
-                msg.sender,
+            IERC721(patentErc721).ownerOf(patentId) == msg.sender,
             LicenseHook_NotOwnerOfPatent()
         );
-        require(curveTickRange % TICK_SPACING == 0, LicenseHook_InvalidCurveTickRange());
-        require(isAllowedNumeraires[numeraire], LicenseHook_NumeraireNotAllowed());
+        require(
+            curveTickRange % TICK_SPACING == 0,
+            LicenseHook_InvalidCurveTickRange()
+        );
+        require(
+            isAllowedNumeraires[numeraire],
+            LicenseHook_NumeraireNotAllowed()
+        );
 
         PoolKey memory poolKey = PoolKey({
             currency0: Currency.wrap(asset),
@@ -62,12 +79,40 @@ contract LicenseHook is BaseHook {
             tickSpacing: TICK_SPACING
         });
 
-        IPoolManager(poolManager).initialize(
+        poolManager.initialize(
             poolKey,
             TickMath.getSqrtPriceAtTick(startingTick)
         );
 
-        poolStates[poolKey.toId()] = PoolState({curveTickRange: curveTickRange});
+        poolStates[poolKey.toId()] = PoolState({
+            curveTickRange: curveTickRange
+        });
+    }
+
+    function _beforeInitialize(
+        address sender,
+        PoolKey calldata,
+        uint160
+    ) internal view override returns (bytes4) {
+        if (sender != address(this)) {
+            revert LicenseHook_UnathorizedPoolInitialization();
+        }
+
+        return BaseHook.beforeInitialize.selector;
+    }
+
+    function _afterInitialize(
+        address sender,
+        PoolKey calldata key,
+        uint160,
+        int24 tick
+    ) internal override returns (bytes4) {
+        poolManager.unlock(
+            abi.encode(
+                // TODO: add callback data
+            )
+        );
+        return BaseHook.afterInitialize.selector;
     }
 
     function getHookPermissions()
