@@ -13,23 +13,29 @@ import {LicenseERC20} from "./LicenseERC20.sol";
 import {SafeCastLib} from "@solady/utils/SafeCastLib.sol";
 import {FullMath} from "@v4-core/libraries/FullMath.sol";
 import {LiquidityAmounts} from "@v4-core-test/utils/LiquidityAmounts.sol";
+import {ModifyLiquidityParams, SwapParams} from "@v4-core/types/PoolOperation.sol";
+import {TransientStateLibrary} from "@v4-core/libraries/TransientStateLibrary.sol";
+import {BeforeSwapDelta, BeforeSwapDeltaLibrary} from "@v4-core/types/BeforeSwapDelta.sol";
+import {StateLibrary} from "@v4-core/libraries/StateLibrary.sol";
 
 struct PoolState {
-    int24 startingTick;
-    int24 curveTickRange;
-    uint256 startingTime;
-    uint256 endingTime;
-    uint24 epochDuration;
-    uint24 currentEpoch;
-    uint24 totalEpochs;
-    uint256 tokensToSell;
-    Position[] positions;
+    int24 startingTick; // upper tick of the curve, price is declining over time
+    int24 curveTickRange; // length of the curve in ticks
+    int24 epochTickRange; // length of the epoch in ticks
+    uint256 startingTime; // starting time of the campaign
+    uint256 endingTime; // ending time of the campaign
+    uint24 epochDuration; // duration of the epoch in seconds
+    uint24 currentEpoch; // current epoch of the campaign
+    uint24 totalEpochs; // total number of epochs
+    uint256 tokensToSell; // total number of tokens to be sold during the campaign
+    Position[] positions; // positions of the curve, from index 0 positions are going from higher to lower price range
+    uint24 positionCounter; // counter of positions applied to the pool
 }
 
 struct Position {
     int24 tickLower;
     int24 tickUpper;
-    uint128 liquidity;
+    int256 liquidity;
 }
 
 struct CallbackData {
@@ -41,21 +47,23 @@ struct CallbackData {
 contract LicenseHook is BaseHook {
     using SafeCastLib for int256;
     using SafeCastLib for uint256;
+    using SafeCastLib for uint128;
+    using StateLibrary for IPoolManager;
+    using TransientStateLibrary for IPoolManager;
 
     error LicenseHook_NotOwnerOfPatent();
     error LicenseHook_AssetNotLicense();
     error LicenseHook_NumeraireNotAllowed();
-    error LicenseHook_InvalidCurveTickRange();
-    error LicenseHook_InvalidEpochLength();
+    error LicenseHook_CurveTickRangeNotPositive();
+    error LicenseHook_InvalidEpochTickRange(int24 closestProperTickRange);
     error LicenseHook_InvalidStartTime();
     error LicenseHook_InvalidTimeRange();
-    error LicenseHook_InvalidTickRange();
-    error LicenseHook_InvalidPriceDiscoveryPositionsAmount();
     error LicenseHook_UnathorizedPoolInitialization();
+    error LicenseHook_ModifyingLiquidityNotAllowed();
     error LicenseHook_InvalidAssetNumeraireOrder();
+    error LicenseHook_RedeemNotAllowed();
 
     int24 public constant TICK_SPACING = 30;
-    uint256 public constant MAX_PRICE_DISCOVERY_SLUGS = 15;
     int256 public constant PRECISION = 1e18;
     uint256 public constant PRECISION_UINT = 1e18;
     IERC721 public immutable patentErc721;
@@ -85,12 +93,12 @@ contract LicenseHook is BaseHook {
             Hooks.Permissions({
                 beforeInitialize: true,
                 afterInitialize: true,
-                beforeAddLiquidity: false,
-                beforeRemoveLiquidity: false,
+                beforeAddLiquidity: true,
+                beforeRemoveLiquidity: true,
                 afterAddLiquidity: false,
                 afterRemoveLiquidity: false,
-                beforeSwap: false,
-                afterSwap: false,
+                beforeSwap: true,
+                afterSwap: true,
                 beforeDonate: false,
                 afterDonate: false,
                 beforeSwapReturnDelta: false,
@@ -117,19 +125,20 @@ contract LicenseHook is BaseHook {
         uint24 totalEpochs,
         uint256 tokensToSell
     ) external {
-        uint24 epochDuration = uint24((endingTime - startingTime) / totalEpochs); // duration of each epoch in seconds
+        int24 epochTickRange = int24(uint24(curveTickRange) / totalEpochs); // length of each epoch in ticks
         _validateInput(
             asset,
             numeraire,
             curveTickRange,
             startingTime,
             endingTime,
-            epochDuration
+            epochTickRange,
+            totalEpochs
         );
 
         PoolKey memory poolKey = PoolKey({
-            currency0: Currency.wrap(asset),
-            currency1: Currency.wrap(numeraire),
+            currency0: Currency.wrap(numeraire),
+            currency1: Currency.wrap(asset),
             hooks: IHooks(this),
             fee: 0,
             tickSpacing: TICK_SPACING // constant TICK_SPACING is used for all pools
@@ -138,13 +147,15 @@ contract LicenseHook is BaseHook {
         poolStates[poolKey.toId()] = PoolState({
             startingTick: startingTick,
             curveTickRange: curveTickRange, // length of curve in ticks
+            epochTickRange: epochTickRange, // length of each epoch in ticks
             startingTime: startingTime,
             endingTime: endingTime,
-            epochDuration: epochDuration, // duration of each epoch in seconds
+            epochDuration: uint24((endingTime - startingTime) / totalEpochs), // duration of each epoch in seconds
             currentEpoch: 0, // currentEpoch is used to track the current epoch of the pool, which is a time period within overall duration of token sale and in scope of which certain price curve is used, initialized as 0 but will be set to 1 in unlockCallback
             tokensToSell: tokensToSell, // tokensToSell is used to track the total amount of tokens to be sold during campaign
             totalEpochs: totalEpochs,
-            positions: new Position[](0) // positions is used to track positions with which curve is defined, initially empty
+            positions: new Position[](0), // positions is used to track positions with which curve is defined, initially empty
+            positionCounter: 0 // counter of the positions
         });
 
         poolManager.initialize(
@@ -153,13 +164,145 @@ contract LicenseHook is BaseHook {
         );
     }
 
+    function unlockCallback(
+        bytes calldata data
+    ) external onlyPoolManager returns (bytes memory) {
+        CallbackData memory callbackData = abi.decode(data, (CallbackData));
+        (PoolKey memory key, address sender, int24 tick) = (
+            callbackData.key,
+            callbackData.sender,
+            callbackData.tick
+        );
+
+        PoolState storage state = poolStates[key.toId()];
+        state.currentEpoch++; // increment the current epoch because with new curve defined the epoch starts
+
+        uint256 amountToSell = state.tokensToSell / state.totalEpochs;
+
+        state.positions.push(
+            Position({
+                tickLower: state.startingTick - state.epochTickRange,
+                tickUpper: state.startingTick,
+                liquidity: _computeLiquidity(
+                    state.startingTick - state.epochTickRange,
+                    state.startingTick,
+                    amountToSell,
+                    false
+                )
+            })
+        );
+
+        _applyPositions(key);
+    }
+
+    function _applyPositions(PoolKey memory key) internal {
+        PoolId poolId = key.toId();
+        PoolState storage state = poolStates[poolId];
+
+        if (state.positions.length == 0) {
+            return;
+        }
+
+        int24 curveUpperTick = state.positions[0].tickUpper;
+
+        // clean up previous epoch positions
+        for (uint256 i = 0; i < state.positionCounter; i++) {
+            poolManager.modifyLiquidity(
+                key,
+                ModifyLiquidityParams({
+                    tickLower: state.positions[i].tickLower,
+                    tickUpper: state.positions[i].tickUpper,
+                    liquidityDelta: -state.positions[i].liquidity,
+                    salt: bytes32(uint256(i))
+                }),
+                ""
+            );
+        }
+
+        state.positionCounter = 0;
+
+        // apply new positions
+        for (uint256 i = 0; i < state.positions.length; i++) {
+            poolManager.modifyLiquidity(
+                key,
+                ModifyLiquidityParams({
+                    tickLower: state.positions[i].tickLower,
+                    tickUpper: state.positions[i].tickUpper,
+                    liquidityDelta: state.positions[i].liquidity,
+                    salt: bytes32(uint256(i))
+                }),
+                ""
+            );
+
+            state.positionCounter++;
+        }
+
+        delete state.positions;
+
+        // transfer deltas
+        int256 currency1Delta = poolManager.currencyDelta(
+            address(this),
+            key.currency1
+        );
+        poolManager.sync(key.currency1);
+        key.currency1.transfer(address(poolManager), uint256(-currency1Delta));
+        poolManager.settle();
+
+        (, int24 currentTick, , ) = poolManager.getSlot0(poolId);
+
+        // check if the price is at the upper tick of the curve, if not then move it to the upper tick
+        if (currentTick != curveUpperTick) {
+            poolManager.swap(
+                key,
+                SwapParams({
+                    zeroForOne: true,
+                    amountSpecified: 1,
+                    sqrtPriceLimitX96: TickMath.getSqrtPriceAtTick(
+                        state.positions[0].tickUpper
+                    )
+                }),
+                ""
+            );
+        }
+    }
+
+    function _computeLiquidity(
+        int24 startingTick,
+        int24 endingTick,
+        uint256 amount,
+        bool forAmount0
+    ) internal pure returns (int256) {
+        amount = amount != 0 ? amount - 1 : amount;
+
+        if (forAmount0) {
+            return
+                LiquidityAmounts
+                    .getLiquidityForAmount0(
+                        TickMath.getSqrtPriceAtTick(startingTick),
+                        TickMath.getSqrtPriceAtTick(endingTick),
+                        amount
+                    )
+                    .toInt256();
+        }
+
+        return
+            LiquidityAmounts
+                .getLiquidityForAmount1(
+                    TickMath.getSqrtPriceAtTick(startingTick),
+                    TickMath.getSqrtPriceAtTick(endingTick),
+                    amount
+                )
+                .toInt256();
+    }
+
     function _validateInput(
         address asset,
         address numeraire,
         int24 curveTickRange,
         uint256 startingTime,
         uint256 endingTime,
-        uint24 epochDuration
+        int24 epochTickRange,
+        uint24 totalEpochs
     ) internal view {
         // Check that the asset is a license token
         uint256 patentId;
@@ -175,39 +318,99 @@ contract LicenseHook is BaseHook {
             LicenseHook_NotOwnerOfPatent()
         );
 
-        // Check that the asset is less than the numeraire (uni v4 requirement)
-        require(asset < numeraire, LicenseHook_InvalidAssetNumeraireOrder());
+        // Check that the asset address is bigger than the numeraire address (uni v4 requirement)
+        require(asset > numeraire, LicenseHook_InvalidAssetNumeraireOrder());
 
         // Check that the starting time is in the future
         require(block.timestamp < startingTime, LicenseHook_InvalidStartTime());
         require(startingTime < endingTime, LicenseHook_InvalidTimeRange());
 
-        // Check that the curve tick range is a multiple of the tick spacing
-        require(
-            curveTickRange % TICK_SPACING == 0,
-            LicenseHook_InvalidCurveTickRange()
-        );
-
         // Check that the curve tick range is positive
-        require(curveTickRange > 0, LicenseHook_InvalidCurveTickRange());
+        require(curveTickRange > 0, LicenseHook_CurveTickRangeNotPositive());
 
         // Check that the epoch tick range is a multiple of the tick spacing
-        uint256 totalDuration = endingTime - startingTime;
         require(
-            FullMath.mulDiv(
-                FullMath.mulDiv(epochDuration, PRECISION_UINT, totalDuration),
-                uint256(int256(curveTickRange)),
-                PRECISION_UINT
-            ) %
-                uint256(int256(TICK_SPACING)) ==
-                0,
-            LicenseHook_InvalidCurveTickRange()
+            epochTickRange % TICK_SPACING == 0,
+            LicenseHook_InvalidEpochTickRange(
+                _calculateClosestProperTickRange(epochTickRange, totalEpochs)
+            )
         );
 
         // Check that the numeraire is allowed
         require(
             isAllowedNumeraires[numeraire],
             LicenseHook_NumeraireNotAllowed()
+        );
+    }
+
+    function _calculateClosestProperTickRange(
+        int24 epochTickRange,
+        uint24 totalEpochs
+    ) internal pure returns (int24) {
+        int24 remainder = epochTickRange % TICK_SPACING;
+
+        if (remainder < TICK_SPACING / 2) {
+            return int24(totalEpochs) * epochTickRange - remainder;
+        }
+
+        return
+            int24(totalEpochs) * (epochTickRange + (TICK_SPACING - remainder));
+    }
+
+    function _beforeSwap(
+        address sender,
+        PoolKey calldata key,
+        SwapParams calldata swapParams,
+        bytes calldata
+    ) internal override returns (bytes4, BeforeSwapDelta, uint24) {
+        if (!swapParams.zeroForOne) {
+            revert LicenseHook_RedeemNotAllowed();
+        }
+
+        PoolState storage state = poolStates[key.toId()];
+
+        // calculate current epoch
+        uint24 currentEpoch = uint24(block.timestamp - state.startingTime) /
+            state.epochDuration +
+            1;
+
+        // if epoch is the same as specified in poolState then allow swap
+        if (currentEpoch == state.currentEpoch) {
+            return (
+                BaseHook.beforeSwap.selector,
+                BeforeSwapDeltaLibrary.ZERO_DELTA,
+                0
+            );
+        }
+
+        uint256 amountToSell = state.tokensToSell / state.totalEpochs;
+        int24 tickLower = state.startingTick -
+            state.epochTickRange *
+            int24(currentEpoch);
+        int24 tickUpper = state.startingTick -
+            state.epochTickRange *
+            int24(currentEpoch - 1);
+
+        // if not the same then calculate position for this epoch
+        state.positions.push(Position({
+            tickLower: tickLower,
+            tickUpper: tickUpper,
+            liquidity: _computeLiquidity(
+                tickLower,
+                tickUpper,
+                amountToSell,
+                false
+            )
+        }));
+
+        _applyPositions(key);
+
+        state.currentEpoch = currentEpoch;
+
+        return (
+            BaseHook.beforeSwap.selector,
+            BeforeSwapDeltaLibrary.ZERO_DELTA,
+            0
         );
     }
 
@@ -237,17 +440,29 @@ contract LicenseHook is BaseHook {
         return BaseHook.afterInitialize.selector;
     }
 
-    function unlockCallback(
-        bytes calldata data
-    ) external onlyPoolManager returns (bytes memory) {
-        CallbackData memory callbackData = abi.decode(data, (CallbackData));
-        (PoolKey memory key, address sender, int24 tick) = (
-            callbackData.key,
-            callbackData.sender,
-            callbackData.tick
-        );
+    function _beforeAddLiquidity(
+        address sender,
+        PoolKey calldata,
+        ModifyLiquidityParams calldata,
+        bytes calldata
+    ) internal override returns (bytes4) {
+        if (sender != address(this)) {
+            revert LicenseHook_ModifyingLiquidityNotAllowed();
+        }
 
-        PoolState storage state = poolStates[key.toId()];
-        state.currentEpoch++; // increment the current epoch because with new curve defined the epoch starts
+        return BaseHook.beforeAddLiquidity.selector;
+    }
+
+    function _beforeRemoveLiquidity(
+        address sender,
+        PoolKey calldata,
+        ModifyLiquidityParams calldata,
+        bytes calldata
+    ) internal override returns (bytes4) {
+        if (sender != address(this)) {
+            revert LicenseHook_ModifyingLiquidityNotAllowed();
+        }
+
+        return BaseHook.beforeRemoveLiquidity.selector;
     }
 }
