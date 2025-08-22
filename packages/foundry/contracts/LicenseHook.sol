@@ -38,12 +38,6 @@ struct Position {
     int256 liquidity;
 }
 
-struct CallbackData {
-    PoolKey key;
-    address sender;
-    int24 tick;
-}
-
 contract LicenseHook is BaseHook {
     using SafeCastLib for int256;
     using SafeCastLib for uint256;
@@ -167,32 +161,43 @@ contract LicenseHook is BaseHook {
     function unlockCallback(
         bytes calldata data
     ) external onlyPoolManager returns (bytes memory) {
-        CallbackData memory callbackData = abi.decode(data, (CallbackData));
-        (PoolKey memory key, address sender, int24 tick) = (
-            callbackData.key,
-            callbackData.sender,
-            callbackData.tick
-        );
+        PoolKey memory key = abi.decode(data, (PoolKey));
 
         PoolState storage state = poolStates[key.toId()];
-        state.currentEpoch++; // increment the current epoch because with new curve defined the epoch starts
 
+        // calculate current epoch
+        uint24 currentEpoch = uint24(block.timestamp - state.startingTime) /
+            state.epochDuration +
+            1;
+
+        if (currentEpoch != state.currentEpoch) {
+            state.currentEpoch = currentEpoch;
+            _calculatePositions(state);
+            _applyPositions(key);
+        }
+    }
+
+    function _calculatePositions(PoolState storage state) internal {
         uint256 amountToSell = state.tokensToSell / state.totalEpochs;
+        int24 tickLower = state.startingTick -
+            state.epochTickRange *
+            int24(state.currentEpoch);
+        int24 tickUpper = state.startingTick -
+            state.epochTickRange *
+            int24(state.currentEpoch - 1);
 
         state.positions.push(
             Position({
-                tickLower: state.startingTick - state.epochTickRange,
-                tickUpper: state.startingTick,
+                tickLower: tickLower,
+                tickUpper: tickUpper,
                 liquidity: _computeLiquidity(
-                    state.startingTick - state.epochTickRange,
-                    state.startingTick,
+                    tickLower,
+                    tickUpper,
                     amountToSell,
                     false
                 )
             })
         );
-
-        _applyPositions(key);
     }
 
     function _applyPositions(PoolKey memory key) internal {
@@ -203,7 +208,7 @@ contract LicenseHook is BaseHook {
             return;
         }
 
-        int24 curveUpperTick = state.positions[0].tickUpper;
+        int24 epochUpperTick = state.positions[0].tickUpper;
 
         // clean up previous epoch positions
         for (uint256 i = 0; i < state.positionCounter; i++) {
@@ -251,14 +256,14 @@ contract LicenseHook is BaseHook {
         (, int24 currentTick, , ) = poolManager.getSlot0(poolId);
 
         // check if the price is at the upper tick of the curve, if not then move it to the upper tick
-        if (currentTick != curveUpperTick) {
+        if (currentTick != epochUpperTick) {
             poolManager.swap(
                 key,
                 SwapParams({
                     zeroForOne: true,
                     amountSpecified: 1,
                     sqrtPriceLimitX96: TickMath.getSqrtPriceAtTick(
-                        state.positions[0].tickUpper
+                        epochUpperTick
                     )
                 }),
                 ""
@@ -367,45 +372,9 @@ contract LicenseHook is BaseHook {
             revert LicenseHook_RedeemNotAllowed();
         }
 
-        PoolState storage state = poolStates[key.toId()];
-
-        // calculate current epoch
-        uint24 currentEpoch = uint24(block.timestamp - state.startingTime) /
-            state.epochDuration +
-            1;
-
-        // if epoch is the same as specified in poolState then allow swap
-        if (currentEpoch == state.currentEpoch) {
-            return (
-                BaseHook.beforeSwap.selector,
-                BeforeSwapDeltaLibrary.ZERO_DELTA,
-                0
-            );
-        }
-
-        uint256 amountToSell = state.tokensToSell / state.totalEpochs;
-        int24 tickLower = state.startingTick -
-            state.epochTickRange *
-            int24(currentEpoch);
-        int24 tickUpper = state.startingTick -
-            state.epochTickRange *
-            int24(currentEpoch - 1);
-
-        // if not the same then calculate position for this epoch
-        state.positions.push(Position({
-            tickLower: tickLower,
-            tickUpper: tickUpper,
-            liquidity: _computeLiquidity(
-                tickLower,
-                tickUpper,
-                amountToSell,
-                false
-            )
-        }));
-
-        _applyPositions(key);
-
-        state.currentEpoch = currentEpoch;
+        poolManager.unlock(
+            abi.encode(key)
+        );
 
         return (
             BaseHook.beforeSwap.selector,
@@ -435,7 +404,7 @@ contract LicenseHook is BaseHook {
         int24 tick
     ) internal override returns (bytes4) {
         poolManager.unlock(
-            abi.encode(CallbackData({key: key, sender: sender, tick: tick}))
+            abi.encode(key)
         );
         return BaseHook.afterInitialize.selector;
     }
@@ -445,7 +414,7 @@ contract LicenseHook is BaseHook {
         PoolKey calldata,
         ModifyLiquidityParams calldata,
         bytes calldata
-    ) internal override returns (bytes4) {
+    ) internal view override returns (bytes4) {
         if (sender != address(this)) {
             revert LicenseHook_ModifyingLiquidityNotAllowed();
         }
@@ -458,7 +427,7 @@ contract LicenseHook is BaseHook {
         PoolKey calldata,
         ModifyLiquidityParams calldata,
         bytes calldata
-    ) internal override returns (bytes4) {
+    ) internal view override returns (bytes4) {
         if (sender != address(this)) {
             revert LicenseHook_ModifyingLiquidityNotAllowed();
         }
