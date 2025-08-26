@@ -326,8 +326,6 @@ contract LicenseHook is BaseHook {
         // Check that the asset address is bigger than the numeraire address (uni v4 requirement)
         require(asset > numeraire, LicenseHook_InvalidAssetNumeraireOrder());
 
-        // Check that the starting time is in the future
-        require(block.timestamp < startingTime, LicenseHook_InvalidStartTime());
         require(startingTime < endingTime, LicenseHook_InvalidTimeRange());
 
         // Check that the curve tick range is positive

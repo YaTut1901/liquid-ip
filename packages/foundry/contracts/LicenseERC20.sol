@@ -24,7 +24,9 @@ contract LicenseERC20 is ERC20 {
         address _patentErc721,
         uint256 _patentId,
         string memory _licenceMetadataUri
-    ) ERC20("LiquidIpProtocolLicense", string(abi.encodePacked("LIPL-", Strings.toString(_patentId)))) onlyPatentOwner {
+    ) ERC20("LiquidIpProtocolLicense", string(abi.encodePacked("LIPL-", Strings.toString(_patentId)))) {
+        require(msg.sender == IERC721(_patentErc721).ownerOf(_patentId), LicenseERC20_OnlyPatentOwner());
+
         patentErc721 = _patentErc721;
         patentId = _patentId;
         licenceMetadataUri = _licenceMetadataUri;
