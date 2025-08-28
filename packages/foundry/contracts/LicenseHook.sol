@@ -17,6 +17,8 @@ import {ModifyLiquidityParams, SwapParams} from "@v4-core/types/PoolOperation.so
 import {TransientStateLibrary} from "@v4-core/libraries/TransientStateLibrary.sol";
 import {BeforeSwapDelta, BeforeSwapDeltaLibrary} from "@v4-core/types/BeforeSwapDelta.sol";
 import {StateLibrary} from "@v4-core/libraries/StateLibrary.sol";
+import {console} from "forge-std/console.sol";
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
 struct PoolState {
     int24 startingTick; // upper tick of the curve, price is declining over time
@@ -38,44 +40,25 @@ struct Position {
     int256 liquidity;
 }
 
-contract LicenseHook is BaseHook {
+contract LicenseHook is BaseHook, Ownable {
     using SafeCastLib for int256;
     using SafeCastLib for uint256;
     using SafeCastLib for uint128;
     using StateLibrary for IPoolManager;
     using TransientStateLibrary for IPoolManager;
 
-    error LicenseHook_NotOwnerOfPatent();
-    error LicenseHook_AssetNotLicense();
-    error LicenseHook_NumeraireNotAllowed();
-    error LicenseHook_CurveTickRangeNotPositive();
-    error LicenseHook_InvalidEpochTickRange(int24 closestProperTickRange);
-    error LicenseHook_InvalidStartTime();
-    error LicenseHook_InvalidTimeRange();
     error LicenseHook_UnathorizedPoolInitialization();
     error LicenseHook_ModifyingLiquidityNotAllowed();
-    error LicenseHook_InvalidAssetNumeraireOrder();
     error LicenseHook_RedeemNotAllowed();
+    error LicenseHook_PoolStateNotInitialized();
 
     int24 public constant TICK_SPACING = 30;
     int256 public constant PRECISION = 1e18;
     uint256 public constant PRECISION_UINT = 1e18;
-    IERC721 public immutable patentErc721;
 
     mapping(PoolId poolId => PoolState poolState) public poolStates;
-    mapping(address numeraire => bool isAllowed) public isAllowedNumeraires;
 
-    constructor(
-        IPoolManager _manager,
-        address _patentErc721,
-        address[] memory _allowedNumeraires
-    ) BaseHook(_manager) {
-        patentErc721 = IERC721(_patentErc721);
-
-        for (uint256 i = 0; i < _allowedNumeraires.length; i++) {
-            isAllowedNumeraires[_allowedNumeraires[i]] = true;
-        }
-    }
+    constructor(IPoolManager _manager) BaseHook(_manager) Ownable(msg.sender) {}
 
     function getHookPermissions()
         public
@@ -87,12 +70,12 @@ contract LicenseHook is BaseHook {
             Hooks.Permissions({
                 beforeInitialize: true,
                 afterInitialize: true,
-                beforeAddLiquidity: true,
-                beforeRemoveLiquidity: true,
+                beforeAddLiquidity: false,
+                beforeRemoveLiquidity: false,
                 afterAddLiquidity: false,
                 afterRemoveLiquidity: false,
                 beforeSwap: true,
-                afterSwap: true,
+                afterSwap: false,
                 beforeDonate: false,
                 afterDonate: false,
                 beforeSwapReturnDelta: false,
@@ -102,42 +85,16 @@ contract LicenseHook is BaseHook {
             });
     }
 
-    /// @notice Creates a new licence distribution campaign, expects that patent is already registered as NFT and licence token is already emitted
-    /// @dev Call PoolManager to create a pool, save provided parameters as this pool state
-    /// @dev Doppler protocol assumes that asset token can be 0 or 1, but in this case asset is always 0 so further code has no assumptions about token order
-    /// @param asset address of licence token, mandatory to be an address of contract with type LicenseERC20 and that msg.sender is an owner of NFT with licence patent id
-    /// @param numeraire address of stablecoin which payment is made, mandatory to be one of whitelisted tokens
-    /// @param startingTick tick where curve starts       0  1 [2  3  4  5] 6
-    /// @param curveTickRange length of curve in ticks -> \  \  \  \  \  \  \ - curve is defined between 2nd and 5th tick, where all liquidity mandatory placed, other ticks are empty
-    function initialize(
-        address asset,
-        address numeraire,
+    function initializeState(
+        PoolKey memory poolKey,
         int24 startingTick,
         int24 curveTickRange,
         uint256 startingTime,
         uint256 endingTime,
         uint24 totalEpochs,
-        uint256 tokensToSell
-    ) external {
-        int24 epochTickRange = int24(uint24(curveTickRange) / totalEpochs); // length of each epoch in ticks
-        _validateInput(
-            asset,
-            numeraire,
-            curveTickRange,
-            startingTime,
-            endingTime,
-            epochTickRange,
-            totalEpochs
-        );
-
-        PoolKey memory poolKey = PoolKey({
-            currency0: Currency.wrap(numeraire),
-            currency1: Currency.wrap(asset),
-            hooks: IHooks(this),
-            fee: 0,
-            tickSpacing: TICK_SPACING // constant TICK_SPACING is used for all pools
-        });
-
+        uint256 tokensToSell,
+        int24 epochTickRange
+    ) external onlyOwner {
         poolStates[poolKey.toId()] = PoolState({
             startingTick: startingTick,
             curveTickRange: curveTickRange, // length of curve in ticks
@@ -151,11 +108,6 @@ contract LicenseHook is BaseHook {
             positions: new Position[](0), // positions is used to track positions with which curve is defined, initially empty
             positionCounter: 0 // counter of the positions
         });
-
-        poolManager.initialize(
-            poolKey,
-            TickMath.getSqrtPriceAtTick(startingTick)
-        );
     }
 
     function unlockCallback(
@@ -165,16 +117,69 @@ contract LicenseHook is BaseHook {
 
         PoolState storage state = poolStates[key.toId()];
 
-        // calculate current epoch
-        uint24 currentEpoch = uint24(block.timestamp - state.startingTime) /
-            state.epochDuration +
-            1;
+        if (block.timestamp < state.startingTime) {
+            return new bytes(0);
+        }
 
-        if (currentEpoch != state.currentEpoch) {
-            state.currentEpoch = currentEpoch;
+        // calculate current epoch
+        int24 currentEpoch = int24(
+            (int256(block.timestamp) - int256(state.startingTime)) /
+                int256(uint256(state.epochDuration)) +
+            1
+        );
+
+        if (currentEpoch > int24(state.currentEpoch)) {
+            state.currentEpoch = uint24(currentEpoch);
             _calculatePositions(state);
             _applyPositions(key);
         }
+    }
+
+    /// @notice Checks that the sender is the LicenseHook contract otherwise reverts
+    function _beforeInitialize(
+        address sender,
+        PoolKey calldata key,
+        uint160
+    ) internal view override returns (bytes4) {
+        if (sender != owner()) {
+            revert OwnableUnauthorizedAccount(sender);
+        }
+
+        if (poolStates[key.toId()].startingTime == 0) {
+            revert LicenseHook_PoolStateNotInitialized();
+        }
+
+        return BaseHook.beforeInitialize.selector;
+    }
+
+    /// @notice calls poolManager to place initial liquidity on the curve
+    function _afterInitialize(
+        address sender,
+        PoolKey calldata key,
+        uint160,
+        int24 tick
+    ) internal override returns (bytes4) {
+        poolManager.unlock(abi.encode(key));
+        return BaseHook.afterInitialize.selector;
+    }
+
+    function _beforeSwap(
+        address sender,
+        PoolKey calldata key,
+        SwapParams calldata swapParams,
+        bytes calldata
+    ) internal override returns (bytes4, BeforeSwapDelta, uint24) {
+        if (!swapParams.zeroForOne) {
+            revert LicenseHook_RedeemNotAllowed();
+        }
+
+        poolManager.unlock(abi.encode(key));
+
+        return (
+            BaseHook.beforeSwap.selector,
+            BeforeSwapDeltaLibrary.ZERO_DELTA,
+            0
+        );
     }
 
     function _calculatePositions(PoolState storage state) internal {
@@ -277,8 +282,6 @@ contract LicenseHook is BaseHook {
         uint256 amount,
         bool forAmount0
     ) internal pure returns (int256) {
-        amount = amount != 0 ? amount - 1 : amount;
-
         if (forAmount0) {
             return
                 LiquidityAmounts
@@ -298,138 +301,5 @@ contract LicenseHook is BaseHook {
                     amount
                 )
                 .toInt256();
-    }
-
-    function _validateInput(
-        address asset,
-        address numeraire,
-        int24 curveTickRange,
-        uint256 startingTime,
-        uint256 endingTime,
-        int24 epochTickRange,
-        uint24 totalEpochs
-    ) internal view {
-        // Check that the asset is a license token
-        uint256 patentId;
-        try LicenseERC20(asset).patentId() returns (uint256 _patentId) {
-            patentId = _patentId;
-        } catch {
-            revert LicenseHook_AssetNotLicense();
-        }
-
-        // Check that the sender is the owner of the patent
-        require(
-            patentErc721.ownerOf(patentId) == msg.sender,
-            LicenseHook_NotOwnerOfPatent()
-        );
-
-        // Check that the asset address is bigger than the numeraire address (uni v4 requirement)
-        require(asset > numeraire, LicenseHook_InvalidAssetNumeraireOrder());
-
-        require(startingTime < endingTime, LicenseHook_InvalidTimeRange());
-
-        // Check that the curve tick range is positive
-        require(curveTickRange > 0, LicenseHook_CurveTickRangeNotPositive());
-
-        // Check that the epoch tick range is a multiple of the tick spacing
-        require(
-            epochTickRange % TICK_SPACING == 0,
-            LicenseHook_InvalidEpochTickRange(
-                _calculateClosestProperTickRange(epochTickRange, totalEpochs)
-            )
-        );
-
-        // Check that the numeraire is allowed
-        require(
-            isAllowedNumeraires[numeraire],
-            LicenseHook_NumeraireNotAllowed()
-        );
-    }
-
-    function _calculateClosestProperTickRange(
-        int24 epochTickRange,
-        uint24 totalEpochs
-    ) internal pure returns (int24) {
-        int24 remainder = epochTickRange % TICK_SPACING;
-
-        if (remainder < TICK_SPACING / 2) {
-            return int24(totalEpochs) * epochTickRange - remainder;
-        }
-
-        return
-            int24(totalEpochs) * (epochTickRange + (TICK_SPACING - remainder));
-    }
-
-    function _beforeSwap(
-        address sender,
-        PoolKey calldata key,
-        SwapParams calldata swapParams,
-        bytes calldata
-    ) internal override returns (bytes4, BeforeSwapDelta, uint24) {
-        if (!swapParams.zeroForOne) {
-            revert LicenseHook_RedeemNotAllowed();
-        }
-
-        poolManager.unlock(
-            abi.encode(key)
-        );
-
-        return (
-            BaseHook.beforeSwap.selector,
-            BeforeSwapDeltaLibrary.ZERO_DELTA,
-            0
-        );
-    }
-
-    /// @notice Checks that the sender is the LicenseHook contract otherwise reverts
-    function _beforeInitialize(
-        address sender,
-        PoolKey calldata,
-        uint160
-    ) internal view override returns (bytes4) {
-        if (sender != address(this)) {
-            revert LicenseHook_UnathorizedPoolInitialization();
-        }
-
-        return BaseHook.beforeInitialize.selector;
-    }
-
-    /// @notice calls poolManager to place initial liquidity on the curve
-    function _afterInitialize(
-        address sender,
-        PoolKey calldata key,
-        uint160,
-        int24 tick
-    ) internal override returns (bytes4) {
-        poolManager.unlock(
-            abi.encode(key)
-        );
-        return BaseHook.afterInitialize.selector;
-    }
-
-    function _beforeAddLiquidity(
-        address sender,
-        PoolKey calldata,
-        ModifyLiquidityParams calldata,
-        bytes calldata
-    ) internal view override returns (bytes4) {
-        if (sender != address(this)) {
-            revert LicenseHook_ModifyingLiquidityNotAllowed();
-        }
-
-        return BaseHook.beforeAddLiquidity.selector;
-    }
-
-    function _beforeRemoveLiquidity(
-        address sender,
-        PoolKey calldata,
-        ModifyLiquidityParams calldata,
-        bytes calldata
-    ) internal view override returns (bytes4) {
-        if (sender != address(this)) {
-            revert LicenseHook_ModifyingLiquidityNotAllowed();
-        }
-
-        return BaseHook.beforeRemoveLiquidity.selector;
     }
 }

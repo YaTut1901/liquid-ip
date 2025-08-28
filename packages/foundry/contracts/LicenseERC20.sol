@@ -10,22 +10,22 @@ contract LicenseERC20 is ERC20 {
 
     error LicenseERC20_OnlyPatentOwner();
 
-    address public immutable patentErc721;
+    IERC721 public immutable patentErc721;
     uint256 public immutable patentId;
     
     string public licenceMetadataUri;
 
     modifier onlyPatentOwner() {
-        require(msg.sender == IERC721(patentErc721).ownerOf(patentId), LicenseERC20_OnlyPatentOwner());
+        require(msg.sender == patentErc721.ownerOf(patentId), LicenseERC20_OnlyPatentOwner());
         _;
     }
 
     constructor(
-        address _patentErc721,
+        IERC721 _patentErc721,
         uint256 _patentId,
         string memory _licenceMetadataUri
     ) ERC20("LiquidIpProtocolLicense", string(abi.encodePacked("LIPL-", Strings.toString(_patentId)))) {
-        require(msg.sender == IERC721(_patentErc721).ownerOf(_patentId), LicenseERC20_OnlyPatentOwner());
+        require(msg.sender == _patentErc721.ownerOf(_patentId), LicenseERC20_OnlyPatentOwner());
 
         patentErc721 = _patentErc721;
         patentId = _patentId;
