@@ -19,6 +19,8 @@ import {BeforeSwapDelta, BeforeSwapDeltaLibrary} from "@v4-core/types/BeforeSwap
 import {StateLibrary} from "@v4-core/libraries/StateLibrary.sol";
 import {console} from "forge-std/console.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {IEpochLiquidityAllocationManager} from "./interfaces/IEpochLiquidityAllocationManager.sol";
+import {IRehypothecationManager} from "./interfaces/IRehypothecationManager.sol";
 
 struct PoolState {
     int24 startingTick; // upper tick of the curve, price is declining over time
@@ -30,8 +32,8 @@ struct PoolState {
     uint24 currentEpoch; // current epoch of the campaign
     uint24 totalEpochs; // total number of epochs
     uint256 tokensToSell; // total number of tokens to be sold during the campaign
-    Position[] positions; // positions of the curve, from index 0 positions are going from higher to lower price range
-    uint24 positionCounter; // counter of positions applied to the pool
+    IEpochLiquidityAllocationManager epochLiquidityAllocationManager; // address of the contract which is responsible for allocating liquidity to the epoch
+    IRehypothecationManager rehypothecationManager; // address of the contract which is responsible for rehypothecation of token0 liquidity after epoch ends
 }
 
 struct Position {
@@ -47,16 +49,29 @@ contract LicenseHook is BaseHook, Ownable {
     using StateLibrary for IPoolManager;
     using TransientStateLibrary for IPoolManager;
 
-    error LicenseHook_UnathorizedPoolInitialization();
-    error LicenseHook_ModifyingLiquidityNotAllowed();
-    error LicenseHook_RedeemNotAllowed();
-    error LicenseHook_PoolStateNotInitialized();
+    error UnathorizedPoolInitialization();
+    error ModifyingLiquidityNotAllowed();
+    error DonatingNotAllowed();
+    error RedeemNotAllowed();
+    error PoolStateNotInitialized();
+    error CampaignNotStarted(uint256 startingTime);
+
+    event PoolStateInitialized(PoolId poolId);
+    event LiquidityAllocated(
+        PoolId poolId,
+        uint24 epoch,
+        int24 tickLower,
+        int24 tickUpper
+    );
 
     int24 public constant TICK_SPACING = 30;
     int256 public constant PRECISION = 1e18;
     uint256 public constant PRECISION_UINT = 1e18;
 
-    mapping(PoolId poolId => PoolState poolState) public poolStates;
+    mapping(PoolId poolId => PoolState poolState) internal poolStates;
+    mapping(bytes32 hash => Position position) internal positions;
+    mapping(PoolId poolId => mapping(uint24 epoch => bool initialized))
+        internal isEpochInitialized;
 
     constructor(IPoolManager _manager) BaseHook(_manager) Ownable(msg.sender) {}
 
@@ -69,14 +84,14 @@ contract LicenseHook is BaseHook, Ownable {
         return
             Hooks.Permissions({
                 beforeInitialize: true,
-                afterInitialize: true,
-                beforeAddLiquidity: false,
-                beforeRemoveLiquidity: false,
+                afterInitialize: false,
+                beforeAddLiquidity: true,
+                beforeRemoveLiquidity: true,
                 afterAddLiquidity: false,
                 afterRemoveLiquidity: false,
                 beforeSwap: true,
                 afterSwap: false,
-                beforeDonate: false,
+                beforeDonate: true,
                 afterDonate: false,
                 beforeSwapReturnDelta: false,
                 afterSwapReturnDelta: false,
@@ -93,7 +108,9 @@ contract LicenseHook is BaseHook, Ownable {
         uint256 endingTime,
         uint24 totalEpochs,
         uint256 tokensToSell,
-        int24 epochTickRange
+        int24 epochTickRange,
+        IEpochLiquidityAllocationManager epochLiquidityAllocationManager,
+        IRehypothecationManager rehypothecationManager
     ) external onlyOwner {
         poolStates[poolKey.toId()] = PoolState({
             startingTick: startingTick,
@@ -105,34 +122,11 @@ contract LicenseHook is BaseHook, Ownable {
             currentEpoch: 0, // currentEpoch is used to track the current epoch of the pool, which is a time period within overall duration of token sale and in scope of which certain price curve is used, initialized as 0 but will be set to 1 in unlockCallback
             tokensToSell: tokensToSell, // tokensToSell is used to track the total amount of tokens to be sold during campaign
             totalEpochs: totalEpochs,
-            positions: new Position[](0), // positions is used to track positions with which curve is defined, initially empty
-            positionCounter: 0 // counter of the positions
+            epochLiquidityAllocationManager: epochLiquidityAllocationManager,
+            rehypothecationManager: rehypothecationManager
         });
-    }
 
-    function unlockCallback(
-        bytes calldata data
-    ) external onlyPoolManager returns (bytes memory) {
-        PoolKey memory key = abi.decode(data, (PoolKey));
-
-        PoolState storage state = poolStates[key.toId()];
-
-        if (block.timestamp < state.startingTime) {
-            return new bytes(0);
-        }
-
-        // calculate current epoch
-        int24 currentEpoch = int24(
-            (int256(block.timestamp) - int256(state.startingTime)) /
-                int256(uint256(state.epochDuration)) +
-            1
-        );
-
-        if (currentEpoch > int24(state.currentEpoch)) {
-            state.currentEpoch = uint24(currentEpoch);
-            _calculatePositions(state);
-            _applyPositions(key);
-        }
+        emit PoolStateInitialized(poolKey.toId());
     }
 
     /// @notice Checks that the sender is the LicenseHook contract otherwise reverts
@@ -146,21 +140,10 @@ contract LicenseHook is BaseHook, Ownable {
         }
 
         if (poolStates[key.toId()].startingTime == 0) {
-            revert LicenseHook_PoolStateNotInitialized();
+            revert PoolStateNotInitialized();
         }
 
         return BaseHook.beforeInitialize.selector;
-    }
-
-    /// @notice calls poolManager to place initial liquidity on the curve
-    function _afterInitialize(
-        address sender,
-        PoolKey calldata key,
-        uint160,
-        int24 tick
-    ) internal override returns (bytes4) {
-        poolManager.unlock(abi.encode(key));
-        return BaseHook.afterInitialize.selector;
     }
 
     function _beforeSwap(
@@ -170,10 +153,37 @@ contract LicenseHook is BaseHook, Ownable {
         bytes calldata
     ) internal override returns (bytes4, BeforeSwapDelta, uint24) {
         if (!swapParams.zeroForOne) {
-            revert LicenseHook_RedeemNotAllowed();
+            revert RedeemNotAllowed();
         }
 
-        poolManager.unlock(abi.encode(key));
+        PoolId poolId = key.toId();
+        PoolState storage state = poolStates[poolId];
+
+        if (block.timestamp < state.startingTime) {
+            revert CampaignNotStarted(state.startingTime);
+        }
+
+        uint24 currentEpoch = _calculateCurrentEpoch(state);
+
+        if (currentEpoch == state.currentEpoch) {
+            return (
+                BaseHook.beforeSwap.selector,
+                BeforeSwapDeltaLibrary.ZERO_DELTA,
+                0
+            );
+        }
+
+        state.currentEpoch = currentEpoch;
+        _calculatePositions(state, poolId);
+        _cleanUpOldEpochPositions(state, key, poolId);
+        (int24 tickLower, int24 tickUpper) = _applyNewEpochPositions(
+            state,
+            key,
+            poolId
+        );
+        _handleDeltas(key);
+
+        emit LiquidityAllocated(poolId, currentEpoch, tickLower, tickUpper);
 
         return (
             BaseHook.beforeSwap.selector,
@@ -182,97 +192,167 @@ contract LicenseHook is BaseHook, Ownable {
         );
     }
 
-    function _calculatePositions(PoolState storage state) internal {
-        uint256 amountToSell = state.tokensToSell / state.totalEpochs;
-        int24 tickLower = state.startingTick -
-            state.epochTickRange *
-            int24(state.currentEpoch);
-        int24 tickUpper = state.startingTick -
-            state.epochTickRange *
-            int24(state.currentEpoch - 1);
-
-        state.positions.push(
-            Position({
-                tickLower: tickLower,
-                tickUpper: tickUpper,
-                liquidity: _computeLiquidity(
-                    tickLower,
-                    tickUpper,
-                    amountToSell,
-                    false
-                )
-            })
-        );
+    function _beforeAddLiquidity(
+        address sender,
+        PoolKey calldata,
+        ModifyLiquidityParams calldata,
+        bytes calldata
+    ) internal pure override returns (bytes4) {
+        revert ModifyingLiquidityNotAllowed();
     }
 
-    function _applyPositions(PoolKey memory key) internal {
-        PoolId poolId = key.toId();
-        PoolState storage state = poolStates[poolId];
+    function _beforeRemoveLiquidity(
+        address sender,
+        PoolKey calldata,
+        ModifyLiquidityParams calldata,
+        bytes calldata
+    ) internal pure override returns (bytes4) {
+        revert ModifyingLiquidityNotAllowed();
+    }
 
-        if (state.positions.length == 0) {
-            return;
+    function _beforeDonate(
+        address,
+        PoolKey calldata,
+        uint256,
+        uint256,
+        bytes calldata
+    ) internal pure override returns (bytes4) {
+        revert DonatingNotAllowed();
+    }
+
+    function _calculatePositions(
+        PoolState storage state,
+        PoolId poolId
+    ) internal {
+        uint24 currentEpoch = state.currentEpoch;
+
+        try
+            state.epochLiquidityAllocationManager.allocate(currentEpoch)
+        returns (Position[] memory allocations) {
+            for (uint256 i = 0; i < allocations.length; i++) {
+                positions[
+                    keccak256(abi.encode(poolId, currentEpoch, i))
+                ] = allocations[i];
+            }
+        } catch {
+            _fallbackCalculatePositions(state, poolId);
         }
 
-        int24 epochUpperTick = state.positions[0].tickUpper;
+        isEpochInitialized[poolId][currentEpoch] = true;
+    }
 
-        // clean up previous epoch positions
-        for (uint256 i = 0; i < state.positionCounter; i++) {
+    function _fallbackCalculatePositions(
+        PoolState storage state,
+        PoolId poolId
+    ) internal {
+        uint24 currentEpoch = state.currentEpoch;
+        int24 startingTick = state.startingTick;
+        int24 epochTickRange = state.epochTickRange;
+
+        uint256 amountToSell = state.tokensToSell / state.totalEpochs;
+        int24 tickLower = startingTick - epochTickRange * int24(currentEpoch);
+        int24 tickUpper = startingTick -
+            epochTickRange *
+            int24(currentEpoch - 1);
+
+        bytes32 positionHash = keccak256(abi.encode(poolId, currentEpoch, 0));
+
+        positions[positionHash] = Position({
+            tickLower: tickLower,
+            tickUpper: tickUpper,
+            liquidity: _computeLiquidity(
+                tickLower,
+                tickUpper,
+                amountToSell,
+                false
+            )
+        });
+    }
+
+    function _handleDeltas(PoolKey memory key) internal {
+        _handleDelta(key.currency0);
+        _handleDelta(key.currency1);
+    }
+
+    function _handleDelta(Currency currency) internal {
+        int256 delta = poolManager.currencyDelta(address(this), currency);
+
+        if (delta < 0) {
+            poolManager.sync(currency);
+            currency.transfer(address(poolManager), uint256(-delta));
+            poolManager.settle();
+        } else if (delta > 0) {
+            // IRehypothecationManager.rehypothecate(currency, delta); - rehypothecate currency to other financial instruments
+            poolManager.take(currency, address(this), uint256(delta));
+        }
+    }
+
+    function _applyNewEpochPositions(
+        PoolState storage state,
+        PoolKey memory key,
+        PoolId poolId
+    ) internal returns (int24 tickLower, int24 tickUpper) {
+        for (uint256 i = 0; i < type(uint256).max; i++) {
+            bytes32 positionHash = keccak256(
+                abi.encode(poolId, state.currentEpoch, i)
+            );
+            Position memory position = positions[positionHash];
+            if (position.liquidity == 0) {
+                tickUpper = positions[
+                    keccak256(abi.encode(poolId, state.currentEpoch, i - 1))
+                ].tickUpper;
+                break;
+            }
+
+            if (i == 0) {
+                tickLower = position.tickLower;
+            }
+
             poolManager.modifyLiquidity(
                 key,
                 ModifyLiquidityParams({
-                    tickLower: state.positions[i].tickLower,
-                    tickUpper: state.positions[i].tickUpper,
-                    liquidityDelta: -state.positions[i].liquidity,
+                    tickLower: position.tickLower,
+                    tickUpper: position.tickUpper,
+                    liquidityDelta: position.liquidity,
                     salt: bytes32(uint256(i))
                 }),
                 ""
             );
         }
+    }
 
-        state.positionCounter = 0;
+    function _cleanUpOldEpochPositions(
+        PoolState storage state,
+        PoolKey memory key,
+        PoolId poolId
+    ) internal {
+        for (uint24 epoch = 1; epoch < state.currentEpoch; epoch++) {
+            if (!isEpochInitialized[poolId][epoch]) {
+                continue;
+            }
 
-        // apply new positions
-        for (uint256 i = 0; i < state.positions.length; i++) {
-            poolManager.modifyLiquidity(
-                key,
-                ModifyLiquidityParams({
-                    tickLower: state.positions[i].tickLower,
-                    tickUpper: state.positions[i].tickUpper,
-                    liquidityDelta: state.positions[i].liquidity,
-                    salt: bytes32(uint256(i))
-                }),
-                ""
-            );
+            for (uint256 i = 0; i < type(uint256).max; i++) {
+                bytes32 positionHash = keccak256(abi.encode(poolId, epoch, i));
+                Position memory position = positions[positionHash];
+                if (position.liquidity == 0) {
+                    break;
+                }
 
-            state.positionCounter++;
-        }
+                poolManager.modifyLiquidity(
+                    key,
+                    ModifyLiquidityParams({
+                        tickLower: position.tickLower,
+                        tickUpper: position.tickUpper,
+                        liquidityDelta: -position.liquidity,
+                        salt: bytes32(uint256(i))
+                    }),
+                    ""
+                );
 
-        delete state.positions;
+                delete positions[positionHash];
+            }
 
-        // transfer deltas
-        int256 currency1Delta = poolManager.currencyDelta(
-            address(this),
-            key.currency1
-        );
-        poolManager.sync(key.currency1);
-        key.currency1.transfer(address(poolManager), uint256(-currency1Delta));
-        poolManager.settle();
-
-        (, int24 currentTick, , ) = poolManager.getSlot0(poolId);
-
-        // check if the price is at the upper tick of the curve, if not then move it to the upper tick
-        if (currentTick != epochUpperTick) {
-            poolManager.swap(
-                key,
-                SwapParams({
-                    zeroForOne: true,
-                    amountSpecified: 1,
-                    sqrtPriceLimitX96: TickMath.getSqrtPriceAtTick(
-                        epochUpperTick
-                    )
-                }),
-                ""
-            );
+            isEpochInitialized[poolId][epoch] = false;
         }
     }
 
@@ -301,5 +381,17 @@ contract LicenseHook is BaseHook, Ownable {
                     amount
                 )
                 .toInt256();
+    }
+
+    function _calculateCurrentEpoch(
+        PoolState storage state
+    ) internal view returns (uint24) {
+        uint256 elapsed = uint256(block.timestamp) -
+            uint256(state.startingTime);
+        uint256 epoch = elapsed / uint256(state.epochDuration) + 1;
+        if (epoch > state.totalEpochs) {
+            epoch = state.totalEpochs;
+        }
+        return uint24(epoch);
     }
 }

@@ -16,7 +16,7 @@ import {Test} from "forge-std/Test.sol";
 import {Hooks} from "@v4-core/libraries/Hooks.sol";
 import {HookMiner} from "@v4-periphery/utils/HookMiner.sol";
 import {PoolKey} from "@v4-core/types/PoolKey.sol";
-import {Currency} from "@v4-core/types/Currency.sol";
+import {Currency, CurrencyLibrary} from "@v4-core/types/Currency.sol";
 import {IHooks} from "@v4-core/interfaces/IHooks.sol";
 import {PoolId, PoolIdLibrary} from "@v4-core/types/PoolId.sol";
 import {StateLibrary} from "@v4-core/libraries/StateLibrary.sol";
@@ -26,6 +26,9 @@ import {LiquidityAmounts} from "@v4-core-test/utils/LiquidityAmounts.sol";
 import {SafeCastLib} from "@solady/utils/SafeCastLib.sol";
 import {CampaignManager} from "../contracts/CampaignManager.sol";
 import {Create2} from "@openzeppelin/contracts/utils/Create2.sol";
+import {SwapParams} from "@v4-core/types/PoolOperation.sol";
+import {TransientStateLibrary} from "@v4-core/libraries/TransientStateLibrary.sol";
+import {CurrencySettler} from "@v4-core-test/utils/CurrencySettler.sol";
 
 contract MockERC20 is ERC20 {
     constructor(string memory name, string memory symbol) ERC20(name, symbol) {
@@ -33,15 +36,33 @@ contract MockERC20 is ERC20 {
     }
 }
 
+contract LicenseHookHarness is LicenseHook {
+    constructor(IPoolManager manager) LicenseHook(manager) {}
+
+    function poolStatesSlot() external pure returns (bytes32 s) {
+        assembly {
+            s := poolStates.slot
+        }
+    }
+
+    function positionsSlot() external pure returns (bytes32 s) {
+        assembly {
+            s := positions.slot
+        }
+    }
+}
+
 contract LicenseHookTest is Test {
     using PoolIdLibrary for PoolKey;
     using StateLibrary for IPoolManager;
+    using TransientStateLibrary for IPoolManager;
+    using CurrencySettler for Currency;
     using SafeCastLib for uint128;
 
     string constant ASSET_METADATA_URI = "https://example.com/asset";
     int24 TICK_SPACING = 30;
 
-    LicenseHook licenseHook;
+    LicenseHookHarness licenseHook;
     PatentERC721 patentErc721;
     MockERC20 numeraire;
     address asset;
@@ -59,6 +80,61 @@ contract LicenseHookTest is Test {
         return this.onERC721Received.selector;
     }
 
+    function unlockCallback(
+        bytes calldata data
+    ) external returns (bytes memory) {
+        require(msg.sender == address(poolManager), "only manager");
+        (PoolKey memory key, SwapParams memory params) = abi.decode(
+            data,
+            (PoolKey, SwapParams)
+        );
+
+        // perform swap
+        poolManager.swap(key, params, "");
+
+        // fetch deltas for this contract
+        int256 delta0 = poolManager.currencyDelta(address(this), key.currency0);
+        int256 delta1 = poolManager.currencyDelta(address(this), key.currency1);
+
+        // settle negatives (owe tokens to pool)
+        if (delta0 < 0) {
+            key.currency0.settle(
+                poolManager,
+                address(this),
+                uint256(-delta0),
+                false
+            );
+        }
+        if (delta1 < 0) {
+            key.currency1.settle(
+                poolManager,
+                address(this),
+                uint256(-delta1),
+                false
+            );
+        }
+
+        // take positives (claim tokens from pool)
+        if (delta0 > 0) {
+            key.currency0.take(
+                poolManager,
+                address(this),
+                uint256(delta0),
+                false
+            );
+        }
+        if (delta1 > 0) {
+            key.currency1.take(
+                poolManager,
+                address(this),
+                uint256(delta1),
+                false
+            );
+        }
+
+        return new bytes(0);
+    }
+
     function setUp() public {
         // initialize pool manager
         poolManager = new PoolManager(address(this));
@@ -73,10 +149,9 @@ contract LicenseHookTest is Test {
         allowedNumeraires[0] = address(numeraire);
 
         // initialize license hook
-        bytes memory creationCode = type(LicenseHook).creationCode;
+        bytes memory creationCode = type(LicenseHookHarness).creationCode;
         uint160 flags = uint160(
             Hooks.BEFORE_INITIALIZE_FLAG |
-                Hooks.AFTER_INITIALIZE_FLAG |
                 Hooks.BEFORE_SWAP_FLAG
         );
         bytes memory constructorArgs = abi.encode(
@@ -88,7 +163,7 @@ contract LicenseHookTest is Test {
             creationCode,
             constructorArgs
         );
-        licenseHook = new LicenseHook{salt: salt}(poolManager);
+        licenseHook = new LicenseHookHarness{salt: salt}(poolManager);
 
         // initialize campaign manager
         campaignManager = new CampaignManager(
@@ -121,77 +196,12 @@ contract LicenseHookTest is Test {
             address(campaignManager),
             patentId
         );
+
+        // transfer numeraire to license hook
+        numeraire.transfer(address(licenseHook), 10 ** 18);
     }
 
-    function test_initialize_success_setup_before_epochs() public {
-        int24 startingTick = int24(2010);
-        int24 curveTickRange = int24(900);
-        uint256 startingTime = block.timestamp + 1 hours;
-        uint256 endingTime = startingTime + 2 hours;
-        uint24 totalEpochs = 10;
-        uint256 tokensToSell = 1000;
-        uint24 epochDuration = uint24(
-            (endingTime - startingTime) / totalEpochs
-        );
-        int24 epochTickRange = int24(curveTickRange / int24(totalEpochs));
-        uint24 currentEpoch = uint24(0);
-
-        campaignManager.initialize(
-            patentId,
-            ASSET_METADATA_URI,
-            licenseSalt,
-            address(numeraire),
-            startingTick,
-            curveTickRange,
-            startingTime,
-            endingTime,
-            totalEpochs,
-            tokensToSell
-        );
-
-        PoolKey memory poolKey = PoolKey({
-            currency0: Currency.wrap(address(numeraire)),
-            currency1: Currency.wrap(asset),
-            hooks: IHooks(address(licenseHook)),
-            fee: 0,
-            tickSpacing: TICK_SPACING
-        });
-
-        PoolId poolId = poolKey.toId();
-
-        (uint160 sqrtPriceX96, , , ) = poolManager.getSlot0(poolId);
-        // pool exists and price is at the starting tick
-        assertEq(sqrtPriceX96, TickMath.getSqrtPriceAtTick(startingTick));
-
-        (
-            int24 startingTick_,
-            int24 curveTickRange_,
-            int24 epochTickRange_,
-            uint256 startingTime_,
-            uint256 endingTime_,
-            uint24 epochDuration_,
-            uint24 currentEpoch_,
-            uint24 totalEpochs_,
-            uint256 tokensToSell_,
-            uint24 positionCounter_
-        ) = licenseHook.poolStates(poolId);
-
-        assertEq(startingTick_, startingTick);
-        assertEq(curveTickRange_, curveTickRange);
-        assertEq(epochTickRange_, epochTickRange);
-        assertEq(startingTime_, startingTime);
-        assertEq(endingTime_, endingTime);
-        assertEq(epochDuration_, epochDuration);
-        assertEq(currentEpoch_, currentEpoch);
-        assertEq(totalEpochs_, totalEpochs);
-        assertEq(tokensToSell_, tokensToSell);
-        assertEq(positionCounter_, 0);
-
-        // no positions added yet because we are before epochs
-        assertEq(poolManager.getLiquidity(poolId), 0);
-    }
-
-    function test_initialize_success_setup_at_epoch() public {
+    function test_swap_flow_across_epochs() public {
         int24 startingTick = int24(2010);
         int24 curveTickRange = int24(900);
         uint256 startingTime = block.timestamp;
@@ -223,26 +233,148 @@ contract LicenseHookTest is Test {
 
         PoolId poolId = poolKey.toId();
 
-        (uint160 sqrtPriceX96, , , ) = poolManager.getSlot0(poolId);
-        // pool exists and price is at the starting tick
-        assertEq(sqrtPriceX96, TickMath.getSqrtPriceAtTick(startingTick));
+        (uint160 sqrtPriceBefore, , , ) = poolManager.getSlot0(poolId);
+        assertEq(sqrtPriceBefore, TickMath.getSqrtPriceAtTick(startingTick));
 
-        uint128 epochPositionLiquidityExpected = LiquidityAmounts
-            .getLiquidityForAmount1(
-                TickMath.getSqrtPriceAtTick(startingTick - epochTickRange),
-                TickMath.getSqrtPriceAtTick(startingTick),
-                tokensToSell / totalEpochs
-            );
+        // Approve pool manager to pull numeraire on settle
+        numeraire.approve(address(poolManager), type(uint256).max);
 
-        (uint128 epochPositionLiquidityActual, , ) = poolManager.getPositionInfo(
+        // Execute a small swap within epoch 1 moving price down slightly (via unlock)
+        poolManager.unlock(
+            abi.encode(
+                poolKey,
+                SwapParams({
+                    zeroForOne: true,
+                    amountSpecified: 100,
+                    sqrtPriceLimitX96: TickMath.getSqrtPriceAtTick(
+                        startingTick - 1
+                    )
+                })
+            )
+        );
+
+        (uint160 sqrtPriceAfterFirstSwap, , , ) = poolManager.getSlot0(poolId);
+        // Price should have changed from the starting tick
+        assertTrue(sqrtPriceAfterFirstSwap != sqrtPriceBefore);
+
+        // After first swap (epoch 1), the epoch-1 position should exist with expected liquidity
+        uint128 expectedLiqEpoch1 = LiquidityAmounts.getLiquidityForAmount1(
+            TickMath.getSqrtPriceAtTick(startingTick - epochTickRange),
+            TickMath.getSqrtPriceAtTick(startingTick),
+            tokensToSell / totalEpochs
+        );
+        (uint128 actualLiqEpoch1, , ) = poolManager.getPositionInfo(
             poolId,
             address(licenseHook),
             startingTick - epochTickRange,
             startingTick,
             bytes32(0)
         );
+        assertEq(actualLiqEpoch1, expectedLiqEpoch1);
 
-        assertEq(epochPositionLiquidityActual, epochPositionLiquidityExpected);
+        // Check pool's numeraire balance increased
+        uint256 numeraireBalanceAfterFirstSettle = numeraire.balanceOf(
+            address(poolManager)
+        );
+        assertGt(numeraireBalanceAfterFirstSettle, 0);
+
+        // Warp into epoch 3 and trigger epoch rollover via a swap
+        (
+            ,
+            ,
+            ,
+            uint256 startingTime_,
+            ,
+            uint24 epochDuration_,
+            ,
+            ,
+
+        ) = readPoolState(licenseHook, poolId);
+
+        uint256 toEpoch3 = startingTime_ + uint256(epochDuration_) * 2 + 1;
+        vm.warp(toEpoch3);
+
+        int24 epoch3TickUpper = startingTick - epochTickRange * int24(2);
+        int24 epoch3TickLower = epoch3TickUpper - epochTickRange;
+
+        // Trigger unlock; set limit to epoch upper so final price aligns with epoch start
+        poolManager.unlock(
+            abi.encode(
+                poolKey,
+                SwapParams({
+                    zeroForOne: true,
+                    amountSpecified: 100,
+                    sqrtPriceLimitX96: TickMath.getSqrtPriceAtTick(
+                        epoch3TickUpper
+                    )
+                })
+            )
+        );
+
+        (uint160 sqrtPriceAtEpoch3, , , ) = poolManager.getSlot0(poolId);
+        assertEq(
+            sqrtPriceAtEpoch3,
+            TickMath.getSqrtPriceAtTick(epoch3TickUpper)
+        );
+
+        // Old epoch 1 position should be removed
+        (uint128 oldLiq, , ) = poolManager.getPositionInfo(
+            poolId,
+            address(licenseHook),
+            startingTick - epochTickRange,
+            startingTick,
+            bytes32(0)
+        );
+        assertEq(oldLiq, 0);
+
+        // New epoch 3 position should exist with expected liquidity
+        uint128 expectedLiqEpoch3 = LiquidityAmounts.getLiquidityForAmount1(
+            TickMath.getSqrtPriceAtTick(epoch3TickLower),
+            TickMath.getSqrtPriceAtTick(epoch3TickUpper),
+            tokensToSell / totalEpochs
+        );
+        (uint128 actualLiqEpoch3, , ) = poolManager.getPositionInfo(
+            poolId,
+            address(licenseHook),
+            epoch3TickLower,
+            epoch3TickUpper,
+            bytes32(0)
+        );
+        assertEq(actualLiqEpoch3, expectedLiqEpoch3);
+
+        // Execute another swap in epoch 3 and settle; numeraire balance should increase
+        poolManager.unlock(
+            abi.encode(
+                poolKey,
+                SwapParams({
+                    zeroForOne: true,
+                    amountSpecified: 100,
+                    sqrtPriceLimitX96: TickMath.getSqrtPriceAtTick(
+                        epoch3TickUpper - 1
+                    )
+                })
+            )
+        );
+        uint256 numeraireBalanceAfterSecondSettle = numeraire.balanceOf(
+            address(poolManager)
+        );
+        assertGt(
+            numeraireBalanceAfterSecondSettle,
+            numeraireBalanceAfterFirstSettle
+        );
+
+        // After second swap in epoch 3, the epoch-3 position should still have the same liquidity
+        uint128 actualLiqEpoch3After;
+        uint256 _unused0;
+        uint256 _unused1;
+        (actualLiqEpoch3After, _unused0, _unused1) = poolManager.getPositionInfo(
+            poolId,
+            address(licenseHook),
+            epoch3TickLower,
+            epoch3TickUpper,
+            bytes32(0)
+        );
+        assertEq(actualLiqEpoch3After, expectedLiqEpoch3);
     }
 
     function _findLicenseSalt() internal view returns (bytes32) {
@@ -266,6 +398,57 @@ contract LicenseHookTest is Test {
             }
         }
         revert("salt not found");
+    }
+
+    function _poolStateBaseSlot(
+        PoolId poolId
+    ) internal view returns (bytes32) {
+        bytes32 slot = licenseHook.poolStatesSlot();
+        return keccak256(abi.encode(PoolId.unwrap(poolId), slot));
+    }
+
+    function readPoolState(
+        LicenseHookHarness hook,
+        PoolId poolId
+    )
+        internal
+        view
+        returns (
+            int24 startingTick,
+            int24 curveTickRange,
+            int24 epochTickRange,
+            uint256 startingTime,
+            uint256 endingTime,
+            uint24 epochDuration,
+            uint24 currentEpoch,
+            uint24 totalEpochs,
+            uint256 tokensToSell
+        )
+    {
+        bytes32 base = _poolStateBaseSlot(poolId);
+
+        uint256 w0 = uint256(vm.load(address(hook), base));
+        startingTick = int24(uint24(w0));
+        curveTickRange = int24(uint24(w0 >> 24));
+        epochTickRange = int24(uint24(w0 >> 48));
+
+        startingTime = uint256(
+            vm.load(address(hook), bytes32(uint256(base) + 1))
+        );
+        endingTime = uint256(
+            vm.load(address(hook), bytes32(uint256(base) + 2))
+        );
+
+        uint256 w3 = uint256(
+            vm.load(address(hook), bytes32(uint256(base) + 3))
+        );
+        epochDuration = uint24(w3);
+        currentEpoch = uint24(w3 >> 24);
+        totalEpochs = uint24(w3 >> 48);
+
+        tokensToSell = uint256(
+            vm.load(address(hook), bytes32(uint256(base) + 4))
+        );
     }
 }
 
