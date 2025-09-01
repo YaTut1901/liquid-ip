@@ -22,6 +22,8 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {IEpochLiquidityAllocationManager} from "./interfaces/IEpochLiquidityAllocationManager.sol";
 import {IRehypothecationManager} from "./interfaces/IRehypothecationManager.sol";
 import {PatentMetadataVerifier} from "./PatentMetadataVerifier.sol";
+import {FHE, euint32, euint256, inEuint32, inEuint256} from "@fhenix/FHE.sol";
+import {Permissioned} from "@fhenix/access/Permissioned.sol";
 
 struct PoolState {
     int24 startingTick; // upper tick of the curve, price is declining over time
@@ -43,12 +45,35 @@ struct Position {
     int256 liquidity;
 }
 
-contract LicenseHook is BaseHook, Ownable {
+struct EncryptedPoolState {
+    euint32 startingTick; // encrypted upper tick of the curve, price is declining over time
+    euint32 curveTickRange; // encrypted length of the curve in ticks
+    euint32 epochTickRange; // encrypted length of the epoch in ticks
+    uint256 startingTime; // starting time of the campaign (kept public for epoch calculations)
+    uint256 endingTime; // ending time of the campaign (kept public for epoch calculations)
+    uint24 epochDuration; // duration of the epoch in seconds (kept public for timing)
+    uint24 currentEpoch; // current epoch of the campaign (kept public for state tracking)
+    uint24 totalEpochs; // total number of epochs (kept public for validation)
+    euint256 tokensToSell; // encrypted total number of tokens to be sold during the campaign
+    IEpochLiquidityAllocationManager epochLiquidityAllocationManager; // address kept public for interface calls
+    IRehypothecationManager rehypothecationManager; // address kept public for interface calls
+    string publicInfo; // public information field for flexibility
+}
+
+struct EncryptedPosition {
+    euint32 tickLower; // encrypted tick lower
+    euint32 tickUpper; // encrypted tick upper
+    euint256 liquidity; // encrypted liquidity amount
+}
+
+contract LicenseHook is BaseHook, Ownable, Permissioned {
     using SafeCastLib for int256;
     using SafeCastLib for uint256;
     using SafeCastLib for uint128;
     using StateLibrary for IPoolManager;
     using TransientStateLibrary for IPoolManager;
+    using FHE for euint32;
+    using FHE for euint256;
 
     error UnathorizedPoolInitialization();
     error ModifyingLiquidityNotAllowed();
@@ -75,6 +100,11 @@ contract LicenseHook is BaseHook, Ownable {
     mapping(bytes32 hash => Position position) internal positions;
     mapping(PoolId poolId => mapping(uint24 epoch => bool initialized))
         internal isEpochInitialized;
+    
+    // Private campaign mappings
+    mapping(PoolId poolId => bool isPrivate) internal isPrivateCampaign;
+    mapping(PoolId poolId => EncryptedPoolState encryptedState) internal encryptedPoolStates;
+    mapping(bytes32 hash => EncryptedPosition encryptedPosition) internal encryptedPositions;
 
     constructor(
         IPoolManager _manager,

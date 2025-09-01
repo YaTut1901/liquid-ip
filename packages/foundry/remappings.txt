@@ -6,3 +6,4 @@
 @hourglass/=lib/hourglass-monorepo/contracts/
 @openzeppelin/contracts/=lib/hourglass-monorepo/contracts/lib/eigenlayer-middleware/lib/eigenlayer-contracts/lib/openzeppelin-contracts-v4.9.0/contracts/
 @openzeppelin-upgrades/contracts/=lib/hourglass-monorepo/contracts/lib/eigenlayer-middleware/lib/eigenlayer-contracts/lib/openzeppelin-contracts-upgradeable-v4.9.0/contracts/
+@fhenix=lib/fhenix-contracts/contracts

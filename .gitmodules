@@ -19,3 +19,6 @@
 [submodule "packages/foundry/lib/hourglass-monorepo"]
 	path = packages/foundry/lib/hourglass-monorepo
 	url = https://github.com/Layr-Labs/hourglass-monorepo
+[submodule "packages/foundry/lib/fhenix-contracts"]
+	path = packages/foundry/lib/fhenix-contracts
+	url = https://github.com/FhenixProtocol/fhenix-contracts
