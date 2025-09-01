@@ -22,7 +22,7 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {IEpochLiquidityAllocationManager} from "./interfaces/IEpochLiquidityAllocationManager.sol";
 import {IRehypothecationManager} from "./interfaces/IRehypothecationManager.sol";
 import {PatentMetadataVerifier} from "./PatentMetadataVerifier.sol";
-import {FHE, euint32, euint256, inEuint32, inEuint256} from "@fhenix/FHE.sol";
+import {FHE, euint32, euint128, euint256, inEuint32, inEuint128, inEuint256} from "@fhenixprotocol/cofhe-contracts/contracts/FHE.sol";
 import {Permissioned} from "@fhenix/access/Permissioned.sol";
 
 struct PoolState {
@@ -66,14 +66,13 @@ struct EncryptedPosition {
     euint256 liquidity; // encrypted liquidity amount
 }
 
-contract LicenseHook is BaseHook, Ownable, Permissioned {
+contract LicenseHook is BaseHook, Ownable {
     using SafeCastLib for int256;
     using SafeCastLib for uint256;
     using SafeCastLib for uint128;
     using StateLibrary for IPoolManager;
     using TransientStateLibrary for IPoolManager;
-    using FHE for euint32;
-    using FHE for euint256;
+    using FHE for uint256; // This allows method syntax on all euint types
 
     error UnathorizedPoolInitialization();
     error ModifyingLiquidityNotAllowed();
@@ -169,6 +168,55 @@ contract LicenseHook is BaseHook, Ownable, Permissioned {
         emit PoolStateInitialized(poolKey.toId());
     }
 
+    function initializePrivateState(
+        PoolKey memory poolKey,
+        inEuint32 memory encryptedStartingTick,
+        inEuint32 memory encryptedCurveTickRange,
+        uint256 startingTime,
+        uint256 endingTime,
+        uint24 totalEpochs,
+        inEuint256 memory encryptedTokensToSell,
+        inEuint32 memory encryptedEpochTickRange,
+        IEpochLiquidityAllocationManager epochLiquidityAllocationManager,
+        IRehypothecationManager rehypothecationManager,
+        string memory publicInfo
+    ) external onlyOwner {
+        PoolId poolId = poolKey.toId();
+        
+        // Convert encrypted inputs to euint types
+        euint32 startingTick = FHE.asEuint32(encryptedStartingTick);
+        euint32 curveTickRange = FHE.asEuint32(encryptedCurveTickRange);
+        euint32 epochTickRange = FHE.asEuint32(encryptedEpochTickRange);
+        euint256 tokensToSell = FHE.asEuint256(encryptedTokensToSell);
+        
+        // Grant contract permissions to use these encrypted values with CoFHE
+        FHE.allowThis(startingTick);
+        FHE.allowThis(curveTickRange);
+        FHE.allowThis(epochTickRange);
+        FHE.allowThis(tokensToSell);
+        
+        // Store encrypted state
+        encryptedPoolStates[poolId] = EncryptedPoolState({
+            startingTick: startingTick,
+            curveTickRange: curveTickRange,
+            epochTickRange: epochTickRange,
+            startingTime: startingTime,
+            endingTime: endingTime,
+            epochDuration: uint24((endingTime - startingTime) / totalEpochs),
+            currentEpoch: 0,
+            totalEpochs: totalEpochs,
+            tokensToSell: tokensToSell,
+            epochLiquidityAllocationManager: epochLiquidityAllocationManager,
+            rehypothecationManager: rehypothecationManager,
+            publicInfo: publicInfo
+        });
+        
+        // Mark as private campaign
+        isPrivateCampaign[poolId] = true;
+        
+        emit PoolStateInitialized(poolId);
+    }
+
     /// @notice Checks that the sender is the LicenseHook contract otherwise reverts
     function _beforeInitialize(
         address sender,
@@ -179,8 +227,17 @@ contract LicenseHook is BaseHook, Ownable, Permissioned {
             revert UnathorizedPoolInitialization();
         }
 
-        if (poolStates[key.toId()].startingTime == 0) {
-            revert PoolStateNotInitialized();
+        PoolId poolId = key.toId();
+        
+        // Check if it's a private campaign or public campaign
+        if (isPrivateCampaign[poolId]) {
+            if (encryptedPoolStates[poolId].startingTime == 0) {
+                revert PoolStateNotInitialized();
+            }
+        } else {
+            if (poolStates[poolId].startingTime == 0) {
+                revert PoolStateNotInitialized();
+            }
         }
 
         return BaseHook.beforeInitialize.selector;
@@ -197,6 +254,21 @@ contract LicenseHook is BaseHook, Ownable, Permissioned {
         }
 
         PoolId poolId = key.toId();
+        
+        // Check if this is a private campaign
+        if (isPrivateCampaign[poolId]) {
+            return _beforeSwapPrivate(sender, key, swapParams, poolId);
+        } else {
+            return _beforeSwapPublic(sender, key, swapParams, poolId);
+        }
+    }
+
+    function _beforeSwapPublic(
+        address sender,
+        PoolKey calldata key,
+        SwapParams calldata swapParams,
+        PoolId poolId
+    ) internal returns (bytes4, BeforeSwapDelta, uint24) {
         PoolState storage state = poolStates[poolId];
 
         if (block.timestamp < state.startingTime) {
@@ -228,6 +300,47 @@ contract LicenseHook is BaseHook, Ownable, Permissioned {
         verifier.validate(tokenId);
 
         emit LiquidityAllocated(poolId, currentEpoch, tickLower, tickUpper);
+        return (
+            BaseHook.beforeSwap.selector,
+            BeforeSwapDeltaLibrary.ZERO_DELTA,
+            0
+        );
+    }
+
+    function _beforeSwapPrivate(
+        address sender,
+        PoolKey calldata key,
+        SwapParams calldata swapParams,
+        PoolId poolId
+    ) internal returns (bytes4, BeforeSwapDelta, uint24) {
+        EncryptedPoolState storage encryptedState = encryptedPoolStates[poolId];
+
+        if (block.timestamp < encryptedState.startingTime) {
+            revert CampaignNotStarted(encryptedState.startingTime);
+        }
+
+        uint24 currentEpoch = _calculateCurrentEpochEncrypted(encryptedState);
+
+        if (currentEpoch == encryptedState.currentEpoch) {
+            return (
+                BaseHook.beforeSwap.selector,
+                BeforeSwapDeltaLibrary.ZERO_DELTA,
+                0
+            );
+        }
+
+        encryptedState.currentEpoch = currentEpoch;
+        _calculatePositionsEncrypted(encryptedState, poolId);
+        _cleanUpOldEpochPositionsEncrypted(encryptedState, key, poolId);
+        (int24 tickLower, int24 tickUpper) = _applyNewEpochPositionsEncrypted(
+            encryptedState,
+            key,
+            poolId
+        );
+        _handleDeltas(key);
+
+        emit LiquidityAllocated(poolId, currentEpoch, tickLower, tickUpper);
+
         return (
             BaseHook.beforeSwap.selector,
             BeforeSwapDeltaLibrary.ZERO_DELTA,
@@ -436,5 +549,182 @@ contract LicenseHook is BaseHook, Ownable, Permissioned {
             epoch = state.totalEpochs;
         }
         return uint24(epoch);
+    }
+
+    // ========== ENCRYPTED FUNCTIONS ==========
+
+    function _calculateCurrentEpochEncrypted(
+        EncryptedPoolState storage encryptedState
+    ) internal view returns (uint24) {
+        // Time calculations remain public since timing needs to be verifiable
+        uint256 elapsed = uint256(block.timestamp) -
+            uint256(encryptedState.startingTime);
+        uint256 epoch = elapsed / uint256(encryptedState.epochDuration) + 1;
+        if (epoch > encryptedState.totalEpochs) {
+            epoch = encryptedState.totalEpochs;
+        }
+        return uint24(epoch);
+    }
+
+    function _calculatePositionsEncrypted(
+        EncryptedPoolState storage encryptedState,
+        PoolId poolId
+    ) internal {
+        uint24 currentEpoch = encryptedState.currentEpoch;
+
+        try
+            encryptedState.epochLiquidityAllocationManager.allocate(currentEpoch)
+        returns (Position[] memory allocations) {
+            // Convert public positions to encrypted positions
+            for (uint256 i = 0; i < allocations.length; i++) {
+                encryptedPositions[
+                    keccak256(abi.encode(poolId, currentEpoch, i))
+                ] = EncryptedPosition({
+                    tickLower: FHE.asEuint32(uint32(int32(allocations[i].tickLower))),
+                    tickUpper: FHE.asEuint32(uint32(int32(allocations[i].tickUpper))),
+                    liquidity: FHE.asEuint256(uint256(allocations[i].liquidity))
+                });
+            }
+        } catch {
+            _fallbackCalculatePositionsEncrypted(encryptedState, poolId);
+        }
+
+        isEpochInitialized[poolId][currentEpoch] = true;
+    }
+
+    function _fallbackCalculatePositionsEncrypted(
+        EncryptedPoolState storage encryptedState,
+        PoolId poolId
+    ) internal {
+        uint24 currentEpoch = encryptedState.currentEpoch;
+        
+        // Decrypt necessary values for calculations (in production, use FHE arithmetic)
+        euint32 startingTick = encryptedState.startingTick;
+        euint32 epochTickRange = encryptedState.epochTickRange;
+        euint256 tokensToSell = encryptedState.tokensToSell;
+        
+        // Using FHE method syntax - try static function approach first
+        euint256 amountToSell = FHE.div(tokensToSell, FHE.asEuint256(encryptedState.totalEpochs));
+        FHE.allowThis(amountToSell);
+        
+        // Calculate encrypted tick positions using FHE operations
+        euint32 epochCurrentEncrypted = FHE.asEuint32(currentEpoch);
+        euint32 epochOffset = FHE.mul(epochCurrentEncrypted, epochTickRange);
+        FHE.allowThis(epochOffset);
+        
+        euint32 tickLower = FHE.sub(startingTick, epochOffset);
+        FHE.allowThis(tickLower);
+        
+        euint32 epochPrevEncrypted = FHE.asEuint32(currentEpoch > 0 ? currentEpoch - 1 : 0);
+        euint32 previousOffset = FHE.mul(epochPrevEncrypted, epochTickRange);
+        FHE.allowThis(previousOffset);
+        
+        euint32 tickUpper = FHE.sub(startingTick, previousOffset);
+        FHE.allowThis(tickUpper);
+        
+        bytes32 positionHash = keccak256(abi.encode(poolId, currentEpoch, 0));
+
+        euint256 encryptedLiquidity = _computeLiquidityEncrypted(tickLower, tickUpper, amountToSell, false);
+        FHE.allowThis(encryptedLiquidity);
+        
+        encryptedPositions[positionHash] = EncryptedPosition({
+            tickLower: tickLower,
+            tickUpper: tickUpper,
+            liquidity: encryptedLiquidity
+        });
+    }
+
+    function _computeLiquidityEncrypted(
+        euint32 startingTick,
+        euint32 endingTick, 
+        euint256 amount,
+        bool forAmount0
+    ) internal pure returns (euint256) {
+        // This is a simplified implementation
+        // In production, we'd need to implement encrypted sqrt and liquidity calculations
+        // For now, return the encrypted amount as a placeholder
+        return amount;
+    }
+
+    function _cleanUpOldEpochPositionsEncrypted(
+        EncryptedPoolState storage encryptedState,
+        PoolKey memory key,
+        PoolId poolId
+    ) internal {
+        for (uint24 epoch = 1; epoch < encryptedState.currentEpoch; epoch++) {
+            if (!isEpochInitialized[poolId][epoch]) {
+                continue;
+            }
+
+            for (uint256 i = 0; i < type(uint256).max; i++) {
+                bytes32 positionHash = keccak256(abi.encode(poolId, epoch, i));
+                EncryptedPosition memory encPosition = encryptedPositions[positionHash];
+                
+                // Check if position exists (simplified check)
+                if (!FHE.isInitialized(encPosition.liquidity)) {
+                    break;
+                }
+
+                // For now, we need to decrypt values to interact with Uniswap
+                // In production, this would need a more sophisticated approach
+                int24 tickLower = int24(int32(FHE.decrypt(encPosition.tickLower)));
+                int24 tickUpper = int24(int32(FHE.decrypt(encPosition.tickUpper)));
+                int256 liquidity = int256(FHE.decrypt(encPosition.liquidity));
+
+                poolManager.modifyLiquidity(
+                    key,
+                    ModifyLiquidityParams({
+                        tickLower: tickLower,
+                        tickUpper: tickUpper,
+                        liquidityDelta: -liquidity,
+                        salt: bytes32(uint256(i))
+                    }),
+                    ""
+                );
+
+                delete encryptedPositions[positionHash];
+            }
+
+            isEpochInitialized[poolId][epoch] = false;
+        }
+    }
+
+    function _applyNewEpochPositionsEncrypted(
+        EncryptedPoolState storage encryptedState,
+        PoolKey memory key,
+        PoolId poolId
+    ) internal returns (int24 tickLower, int24 tickUpper) {
+        for (uint256 i = 0; i < type(uint256).max; i++) {
+            bytes32 positionHash = keccak256(
+                abi.encode(poolId, encryptedState.currentEpoch, i)
+            );
+            EncryptedPosition memory encPosition = encryptedPositions[positionHash];
+            
+            if (!FHE.isInitialized(encPosition.liquidity)) {
+                if (i > 0) {
+                    EncryptedPosition memory prevPosition = encryptedPositions[
+                        keccak256(abi.encode(poolId, encryptedState.currentEpoch, i - 1))
+                    ];
+                    tickUpper = int24(int32(FHE.decrypt(prevPosition.tickUpper)));
+                }
+                break;
+            }
+
+            if (i == 0) {
+                tickLower = int24(int32(FHE.decrypt(encPosition.tickLower)));
+            }
+
+            // Decrypt values for Uniswap interaction
+            poolManager.modifyLiquidity(
+                key,
+                ModifyLiquidityParams({
+                    tickLower: int24(int32(FHE.decrypt(encPosition.tickLower))),
+                    tickUpper: int24(int32(FHE.decrypt(encPosition.tickUpper))),
+                    liquidityDelta: int256(FHE.decrypt(encPosition.liquidity)),
+                    salt: bytes32(uint256(i))
+                }),
+                ""
+            );
+        }
     }
 }
