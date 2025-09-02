@@ -21,6 +21,7 @@ import {console} from "forge-std/console.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {IEpochLiquidityAllocationManager} from "./interfaces/IEpochLiquidityAllocationManager.sol";
 import {IRehypothecationManager} from "./interfaces/IRehypothecationManager.sol";
+import {PatentMetadataVerifier} from "./PatentMetadataVerifier.sol";
 
 struct PoolState {
     int24 startingTick; // upper tick of the curve, price is declining over time
@@ -68,12 +69,16 @@ contract LicenseHook is BaseHook, Ownable {
     int256 public constant PRECISION = 1e18;
     uint256 public constant PRECISION_UINT = 1e18;
 
+    PatentMetadataVerifier public immutable verifier;
+
     mapping(PoolId poolId => PoolState poolState) internal poolStates;
     mapping(bytes32 hash => Position position) internal positions;
     mapping(PoolId poolId => mapping(uint24 epoch => bool initialized))
         internal isEpochInitialized;
 
-    constructor(IPoolManager _manager) BaseHook(_manager) Ownable(msg.sender) {}
+    constructor(IPoolManager _manager, PatentMetadataVerifier _verifier) BaseHook(_manager) Ownable(msg.sender) {
+        verifier = _verifier;
+    }
 
     function getHookPermissions()
         public
@@ -183,8 +188,10 @@ contract LicenseHook is BaseHook, Ownable {
         );
         _handleDeltas(key);
 
-        emit LiquidityAllocated(poolId, currentEpoch, tickLower, tickUpper);
+        uint256 tokenId = LicenseERC20(Currency.unwrap(key.currency0)).patentId();
+        verifier.verify(tokenId);
 
+        emit LiquidityAllocated(poolId, currentEpoch, tickLower, tickUpper);
         return (
             BaseHook.beforeSwap.selector,
             BeforeSwapDeltaLibrary.ZERO_DELTA,

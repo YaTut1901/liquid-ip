@@ -4,4 +4,5 @@
 @v4-periphery=lib/uniswap-hooks/lib/v4-periphery/src
 @solady=lib/solady/src
 @uniswap/v4-core=lib/uniswap-hooks/lib/v4-core/
+@hourglass/=lib/hourglass-monorepo/contracts/
 

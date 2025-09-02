@@ -1,10 +1,5 @@
-// 1) swap amount of tokens bigger then epoch
-// 2) try to swap tokens on epoch which is out of specified campaign duration
-// 3) to check if the pool has initial position after intialization at the starting tick, filled with JUST asset
-// 4) conduct a swap and check if the position is filled with both numeraire and asset
-// 5) to check if the pool has a position after epoch cahnged at the proper tick range, filled with JUST asset
-// 6) to check if the pool DOES NOT have a position in previous epoch after epoch changed
-// 7) initiate an epoch change by swap after some amount of epoch changed
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
 
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -32,6 +27,7 @@ import {TransientStateLibrary} from "@v4-core/libraries/TransientStateLibrary.so
 import {CurrencySettler} from "@v4-core-test/utils/CurrencySettler.sol";
 import {IRehypothecationManager} from "../contracts/interfaces/IRehypothecationManager.sol";
 import {IEpochLiquidityAllocationManager} from "../contracts/interfaces/IEpochLiquidityAllocationManager.sol";
+import {PatentMetadataVerifier} from "../contracts/PatentMetadataVerifier.sol";
 
 contract MockERC20 is ERC20 {
     constructor(string memory name, string memory symbol) ERC20(name, symbol) {
@@ -40,7 +36,7 @@ contract MockERC20 is ERC20 {
 }
 
 contract LicenseHookHarness is LicenseHook {
-    constructor(IPoolManager manager) LicenseHook(manager) {}
+    constructor(IPoolManager manager, PatentMetadataVerifier verifier) LicenseHook(manager, verifier) {}
 
     function poolStatesSlot() external pure returns (bytes32 s) {
         assembly {
@@ -146,6 +142,9 @@ contract LicenseHookTest is Test {
         patentErc721 = new PatentERC721();
         patentId = patentErc721.mint(address(this), ASSET_METADATA_URI);
 
+        // initialize patent metadata verifier
+        PatentMetadataVerifier verifier = new PatentMetadataVerifier(address(0), 1 days);
+
         // initialize numeraire
         numeraire = new MockERC20("Numeraire", "NUM");
         IERC20[] memory allowedNumeraires = new IERC20[](1);
@@ -158,7 +157,8 @@ contract LicenseHookTest is Test {
                 Hooks.BEFORE_SWAP_FLAG
         );
         bytes memory constructorArgs = abi.encode(
-            IPoolManager(address(poolManager))
+            IPoolManager(address(poolManager)),
+            verifier
         );
         (address licenseHookAddress, bytes32 salt) = HookMiner.find(
             address(this),
@@ -166,7 +166,7 @@ contract LicenseHookTest is Test {
             creationCode,
             constructorArgs
         );
-        licenseHook = new LicenseHookHarness{salt: salt}(poolManager);
+        licenseHook = new LicenseHookHarness{salt: salt}(poolManager, verifier);
 
         IRehypothecationManager[] memory rehypothecationManagers = new IRehypothecationManager[](1);
         rehypothecationManagers[0] = IRehypothecationManager(address(0));

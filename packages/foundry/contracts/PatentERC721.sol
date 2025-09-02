@@ -16,4 +16,10 @@ contract PatentERC721 is ERC721URIStorage {
         _nextTokenId++;
         return _nextTokenId - 1;
     }
+
+    // Should be validated by AVS
+    function updateURI(uint256 tokenId, string memory uri) external {
+        require(ownerOf(tokenId) == msg.sender, "Not the owner");
+        _setTokenURI(tokenId, uri);
+    }
 }

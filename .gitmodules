@@ -13,3 +13,9 @@
 [submodule "packages/foundry/lib/solady"]
 	path = packages/foundry/lib/solady
 	url = https://github.com/vectorized/solady
+[submodule "packages/foundry/lib/eigenlayer-contracts"]
+	path = packages/foundry/lib/eigenlayer-contracts
+	url = https://github.com/Layr-Labs/eigenlayer-contracts
+[submodule "packages/foundry/lib/hourglass-monorepo"]
+	path = packages/foundry/lib/hourglass-monorepo
+	url = https://github.com/Layr-Labs/hourglass-monorepo
