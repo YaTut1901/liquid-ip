@@ -7,6 +7,7 @@
 // 7) initiate an epoch change by swap after some amount of epoch changed
 
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {LicenseHook} from "../contracts/LicenseHook.sol";
 import {IPoolManager} from "@v4-core/interfaces/IPoolManager.sol";
 import {PoolManager} from "@v4-core/PoolManager.sol";
@@ -29,6 +30,8 @@ import {Create2} from "@openzeppelin/contracts/utils/Create2.sol";
 import {SwapParams} from "@v4-core/types/PoolOperation.sol";
 import {TransientStateLibrary} from "@v4-core/libraries/TransientStateLibrary.sol";
 import {CurrencySettler} from "@v4-core-test/utils/CurrencySettler.sol";
+import {IRehypothecationManager} from "../contracts/interfaces/IRehypothecationManager.sol";
+import {IEpochLiquidityAllocationManager} from "../contracts/interfaces/IEpochLiquidityAllocationManager.sol";
 
 contract MockERC20 is ERC20 {
     constructor(string memory name, string memory symbol) ERC20(name, symbol) {
@@ -145,8 +148,8 @@ contract LicenseHookTest is Test {
 
         // initialize numeraire
         numeraire = new MockERC20("Numeraire", "NUM");
-        address[] memory allowedNumeraires = new address[](1);
-        allowedNumeraires[0] = address(numeraire);
+        IERC20[] memory allowedNumeraires = new IERC20[](1);
+        allowedNumeraires[0] = numeraire;
 
         // initialize license hook
         bytes memory creationCode = type(LicenseHookHarness).creationCode;
@@ -165,11 +168,18 @@ contract LicenseHookTest is Test {
         );
         licenseHook = new LicenseHookHarness{salt: salt}(poolManager);
 
+        IRehypothecationManager[] memory rehypothecationManagers = new IRehypothecationManager[](1);
+        rehypothecationManagers[0] = IRehypothecationManager(address(0));
+        IEpochLiquidityAllocationManager[] memory epochLiquidityAllocationManagers = new IEpochLiquidityAllocationManager[](1);
+        epochLiquidityAllocationManagers[0] = IEpochLiquidityAllocationManager(address(0));
+
         // initialize campaign manager
         campaignManager = new CampaignManager(
             poolManager,
             patentErc721,
             allowedNumeraires,
+            epochLiquidityAllocationManagers,
+            rehypothecationManagers,
             licenseHook
         );
         licenseHook.transferOwnership(address(campaignManager));
@@ -214,13 +224,15 @@ contract LicenseHookTest is Test {
             patentId,
             ASSET_METADATA_URI,
             licenseSalt,
-            address(numeraire),
+            numeraire,
             startingTick,
             curveTickRange,
             startingTime,
             endingTime,
             totalEpochs,
-            tokensToSell
+            tokensToSell,
+            IEpochLiquidityAllocationManager(address(0)),
+            IRehypothecationManager(address(0))
         );
 
         PoolKey memory poolKey = PoolKey({
