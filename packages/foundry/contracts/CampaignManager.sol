@@ -140,10 +140,10 @@ contract CampaignManager is Ownable {
             block.timestamp > campaignEndTimestamp[patentId],
             CampaignOngoing()
         );
-        address owner = delegatedPatents[patentId];
+        address patentOwner = delegatedPatents[patentId];
         delegatedPatents[patentId] = address(0);
-        patentErc721.transferFrom(address(this), owner, patentId);
-        emit PatentRetrieved(patentId, owner);
+        patentErc721.transferFrom(address(this), patentOwner, patentId);
+        emit PatentRetrieved(patentId, patentOwner);
     }
 
     function initialize(
