@@ -189,7 +189,7 @@ contract LicenseHook is BaseHook, Ownable {
         _handleDeltas(key);
 
         uint256 tokenId = LicenseERC20(Currency.unwrap(key.currency0)).patentId();
-        verifier.verify(tokenId);
+        verifier.validate(tokenId);
 
         emit LiquidityAllocated(poolId, currentEpoch, tickLower, tickUpper);
         return (

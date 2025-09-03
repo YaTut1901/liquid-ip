@@ -2,24 +2,47 @@
 pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/token/ERC721/extensions/ERC721URIStorage.sol";
+import {PatentMetadataVerifier, Request} from "./PatentMetadataVerifier.sol";
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 
-contract PatentERC721 is ERC721URIStorage {
+// owner is avs task hook
+contract PatentERC721 is ERC721URIStorage, Ownable {
+    PatentMetadataVerifier public immutable verifier;
+
     uint256 public _nextTokenId;
 
-    constructor() ERC721("Patent NFT", "PNFT") {
+    constructor(
+        PatentMetadataVerifier _verifier,
+        address _owner
+    ) ERC721("Patent NFT", "PNFT") Ownable(_owner) {
+        verifier = _verifier;
         _nextTokenId = 1;
     }
 
     function mint(address to, string memory uri) external returns (uint256) {
-        _safeMint(to, _nextTokenId);
-        _setTokenURI(_nextTokenId, uri);
-        _nextTokenId++;
-        return _nextTokenId - 1;
+        // avs mints the token and updates the URI
+        if (owner() == msg.sender) {
+            _safeMint(to, _nextTokenId);
+            _setTokenURI(_nextTokenId, uri);
+            _nextTokenId++;
+            return _nextTokenId - 1;
+        } else {
+            // called by other than avs then it submits request to avs
+            verifier.verify(_nextTokenId, Request({requester: to, uri: uri}));
+        }
     }
 
-    // Should be validated by AVS
-    function updateURI(uint256 tokenId, string memory uri) external {
-        require(ownerOf(tokenId) == msg.sender, "Not the owner");
-        _setTokenURI(tokenId, uri);
+    function updateURI(uint256 tokenId, string memory uri) public {
+        // avs updates the URI
+        if (owner() == msg.sender) {
+            _setTokenURI(tokenId, uri);
+        } else {
+            // if function is called by token owner then it submits request to avs
+            require(ownerOf(tokenId) == msg.sender, "Not the owner");
+            verifier.verify(
+                tokenId,
+                Request({requester: address(0), uri: uri})
+            );
+        }
     }
 }
