@@ -95,11 +95,15 @@ contract PatentMetadataVerifier is Ownable, IAVSTaskHook {
         address caller,
         bytes32 taskHash
     ) external {
+        require(msg.sender == address(mailbox), "Only mailbox can call");
+
         bytes memory result = mailbox.getTaskResult(taskHash);
         (uint256 tokenId, bool valid, Metadata memory meta) = abi.decode(
             result,
             (uint256, bool, Metadata)
         );
+
+        require(bytes(requests[tokenId].uri).length > 0, "No pending requests");
 
         if (!valid) {
             emit WrongMetadataFormat(tokenId, requests[tokenId].uri);
