@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.20;
+pragma solidity ^0.8.27;
 
 import {IERC721} from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -58,7 +58,7 @@ contract CampaignManager is Ownable {
             memory _allowedEpochLiquidityAllocationManagers,
         IRehypothecationManager[] memory _allowedRehypothecationManagers,
         LicenseHook _licenseHook
-    ) Ownable(msg.sender) {
+    ) Ownable() {
         poolManager = _manager;
         patentErc721 = _patentErc721;
         licenseHook = _licenseHook;

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.20;
+pragma solidity ^0.8.27;
 
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {ITaskMailbox, ITaskMailboxTypes} from "@hourglass/lib/eigenlayer-middleware/lib/eigenlayer-contracts/src/contracts/interfaces/ITaskMailbox.sol";
@@ -37,7 +37,7 @@ contract PatentMetadataVerifier is Ownable, IAVSTaskHook {
     ITaskMailbox public immutable mailbox;
     address public immutable operatorSetOwner;
     uint32 public immutable operatorSetId;
-    PatentERC721 public immutable patentErc721;
+    PatentERC721 public patentErc721;
 
     mapping(uint256 tokenId => Metadata metadata) public metadata;
     mapping(uint256 tokenId => Request request) public requests;
@@ -45,13 +45,22 @@ contract PatentMetadataVerifier is Ownable, IAVSTaskHook {
     constructor(
         ITaskMailbox _mailbox,
         address _operatorSetOwner,
-        uint32 _operatorSetId,
-        PatentERC721 _patentErc721,
-        address _owner
-    ) Ownable(_owner) {
+        uint32 _operatorSetId
+    ) Ownable() {
         mailbox = _mailbox;
         operatorSetOwner = _operatorSetOwner;
         operatorSetId = _operatorSetId;
+    }
+
+    modifier onlyConfigured {
+        require(
+            address(patentErc721) != address(0),
+            "PatentErc721 not configured"
+        );
+        _;
+    }
+
+    function setPatentErc721(PatentERC721 _patentErc721) external onlyOwner {
         patentErc721 = _patentErc721;
     }
 
@@ -59,7 +68,7 @@ contract PatentMetadataVerifier is Ownable, IAVSTaskHook {
     function verify(
         uint256 tokenId,
         Request memory request
-    ) public returns (bytes32 taskHash) {
+    ) public onlyConfigured returns (bytes32 taskHash) {
         requests[tokenId] = request;
         ITaskMailboxTypes.TaskParams memory params = ITaskMailboxTypes
             .TaskParams({
@@ -75,7 +84,7 @@ contract PatentMetadataVerifier is Ownable, IAVSTaskHook {
     }
 
     // function to aggregate required actions on metadata fields
-    function validate(uint256 tokenId) external {
+    function validate(uint256 tokenId) external onlyConfigured {
         // this case should be impossible to reach
         if (metadata[tokenId].status == Status.UNKNOWN) {
             verify(
@@ -94,7 +103,7 @@ contract PatentMetadataVerifier is Ownable, IAVSTaskHook {
     function handlePostTaskResultSubmission(
         address caller,
         bytes32 taskHash
-    ) external {
+    ) external onlyConfigured {
         require(msg.sender == address(mailbox), "Only mailbox can call");
 
         bytes memory result = mailbox.getTaskResult(taskHash);

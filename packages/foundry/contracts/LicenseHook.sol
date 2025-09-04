@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.20;
+pragma solidity ^0.8.27;
 
 import {BaseHook} from "@v4-periphery/utils/BaseHook.sol";
 import {IPoolManager} from "@v4-core/interfaces/IPoolManager.sol";
@@ -76,8 +76,13 @@ contract LicenseHook is BaseHook, Ownable {
     mapping(PoolId poolId => mapping(uint24 epoch => bool initialized))
         internal isEpochInitialized;
 
-    constructor(IPoolManager _manager, PatentMetadataVerifier _verifier) BaseHook(_manager) Ownable(msg.sender) {
+    constructor(
+        IPoolManager _manager,
+        PatentMetadataVerifier _verifier,
+        address owner
+    ) BaseHook(_manager) Ownable() {
         verifier = _verifier;
+        _transferOwnership(owner);
     }
 
     function getHookPermissions()
@@ -141,7 +146,7 @@ contract LicenseHook is BaseHook, Ownable {
         uint160
     ) internal view override returns (bytes4) {
         if (sender != owner()) {
-            revert OwnableUnauthorizedAccount(sender);
+            revert UnathorizedPoolInitialization();
         }
 
         if (poolStates[key.toId()].startingTime == 0) {
@@ -188,7 +193,8 @@ contract LicenseHook is BaseHook, Ownable {
         );
         _handleDeltas(key);
 
-        uint256 tokenId = LicenseERC20(Currency.unwrap(key.currency0)).patentId();
+        uint256 tokenId = LicenseERC20(Currency.unwrap(key.currency0))
+            .patentId();
         verifier.validate(tokenId);
 
         emit LiquidityAllocated(poolId, currentEpoch, tickLower, tickUpper);

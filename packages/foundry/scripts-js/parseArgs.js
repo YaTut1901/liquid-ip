@@ -14,35 +14,50 @@ const args = process.argv.slice(2);
 let fileName = "Deploy.s.sol";
 let network = "localhost";
 let keystoreArg = null;
+let forgeArgs = [];
+let sigArg = null;
 
 // Show help message if --help is provided
 if (args.includes("--help") || args.includes("-h")) {
   console.log(`
-Usage: yarn deploy [options]
+Usage: yarn deploy [options] [-- forge args]
 Options:
   --file <filename>     Specify the deployment script file (default: Deploy.s.sol)
   --network <network>   Specify the network (default: localhost)
   --keystore <name>     Specify the keystore account to use (bypasses selection prompt)
+  --sig <signature>     Specify the function signature for the run method, e.g. "run(address)"
   --help, -h           Show this help message
 Examples:
   yarn deploy --file DeployYourContract.s.sol --network sepolia
   yarn deploy --network sepolia --keystore my-account
+  yarn deploy --file DeployYourContract.s.sol --sig "run(address)" -- 0xPOOL
   yarn deploy --file DeployYourContract.s.sol
   yarn deploy
   `);
   process.exit(0);
 }
 
+// Split args on standalone --; everything after goes to forge
+let doubleDashIndex = args.indexOf("--");
+let mainArgs = args;
+if (doubleDashIndex !== -1) {
+  mainArgs = args.slice(0, doubleDashIndex);
+  forgeArgs = args.slice(doubleDashIndex + 1);
+}
+
 // Parse arguments
-for (let i = 0; i < args.length; i++) {
-  if (args[i] === "--network" && args[i + 1]) {
-    network = args[i + 1];
+for (let i = 0; i < mainArgs.length; i++) {
+  if (mainArgs[i] === "--network" && mainArgs[i + 1]) {
+    network = mainArgs[i + 1];
     i++; // Skip next arg since we used it
-  } else if (args[i] === "--file" && args[i + 1]) {
-    fileName = args[i + 1];
+  } else if (mainArgs[i] === "--file" && mainArgs[i + 1]) {
+    fileName = mainArgs[i + 1];
     i++; // Skip next arg since we used it
-  } else if (args[i] === "--keystore" && args[i + 1]) {
-    keystoreArg = args[i + 1];
+  } else if (mainArgs[i] === "--keystore" && mainArgs[i + 1]) {
+    keystoreArg = mainArgs[i + 1];
+    i++; // Skip next arg since we used it
+  } else if (mainArgs[i] === "--sig" && mainArgs[i + 1]) {
+    sigArg = mainArgs[i + 1];
     i++; // Skip next arg since we used it
   }
 }
@@ -152,6 +167,18 @@ The default account (scaffold-eth-default) can only be used for localhost deploy
 process.env.DEPLOY_SCRIPT = `script/${fileName}`;
 process.env.RPC_URL = network;
 process.env.ETH_KEYSTORE_ACCOUNT = selectedKeystore;
+
+// Build FORGE_ARGS from parsed options
+let forwarded = [];
+if (sigArg) {
+  forwarded.push("--sig");
+  // Wrap signature to protect parentheses from shell parsing
+  forwarded.push(`'${sigArg}'`);
+}
+if (forgeArgs.length > 0) {
+  forwarded = forwarded.concat(forgeArgs);
+}
+process.env.FORGE_ARGS = forwarded.join(" ");
 
 const result = spawnSync("make", ["deploy-and-generate-abis"], {
   stdio: "inherit",

@@ -1,8 +1,8 @@
-@openzeppelin/contracts/=lib/openzeppelin-contracts/contracts
 @v4-core=lib/uniswap-hooks/lib/v4-core/src
 @v4-core-test=lib/uniswap-hooks/lib/v4-core/test
 @v4-periphery=lib/uniswap-hooks/lib/v4-periphery/src
 @solady=lib/solady/src
 @uniswap/v4-core=lib/uniswap-hooks/lib/v4-core/
 @hourglass/=lib/hourglass-monorepo/contracts/
-
+@openzeppelin/contracts/=lib/hourglass-monorepo/contracts/lib/eigenlayer-middleware/lib/eigenlayer-contracts/lib/openzeppelin-contracts-v4.9.0/contracts/
+@openzeppelin-upgrades/contracts/=lib/hourglass-monorepo/contracts/lib/eigenlayer-middleware/lib/eigenlayer-contracts/lib/openzeppelin-contracts-upgradeable-v4.9.0/contracts/

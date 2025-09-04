@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.20;
+pragma solidity ^0.8.27;
 
 import "@openzeppelin/contracts/token/ERC721/extensions/ERC721URIStorage.sol";
 import {PatentMetadataVerifier, Request} from "./PatentMetadataVerifier.sol";
@@ -14,7 +14,7 @@ contract PatentERC721 is ERC721URIStorage, Ownable {
     constructor(
         PatentMetadataVerifier _verifier,
         address _owner
-    ) ERC721("Patent NFT", "PNFT") Ownable(_owner) {
+    ) ERC721("Patent NFT", "PNFT") Ownable() {
         verifier = _verifier;
         _nextTokenId = 1;
     }
