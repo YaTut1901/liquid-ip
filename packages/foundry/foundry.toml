@@ -9,6 +9,15 @@ optimizer = true
 optimizer_runs = 200
 code_size_limit = 100000
 
+[profile.coverage]
+via_ir = true
+optimizer = true
+optimizer_runs = 1
+ir_minimum = true
+
+[profile.coverage_easy]
+ir_minimum = true
+
 [rpc_endpoints]
 default_network = "http://0.0.0.0:8545"
 

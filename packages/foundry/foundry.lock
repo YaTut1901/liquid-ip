@@ -5,6 +5,12 @@
       "rev": "f5055bfcc36243b9aaff3a55149fae10c86a7de2"
     }
   },
+  "lib/cofhe-mock-contracts": {
+    "tag": {
+      "name": "v0.3.1",
+      "rev": "14e5446de3f130bac92b6cd181a24be4559957a0"
+    }
+  },
   "lib/fhenix-contracts": {
     "tag": {
       "name": "v0.3.1",
