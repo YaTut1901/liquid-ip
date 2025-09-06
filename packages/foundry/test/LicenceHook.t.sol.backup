@@ -156,11 +156,7 @@ contract LicenseHookTest is Test {
         // initialize numeraire
         numeraire = new MockERC20("Numeraire", "NUM");
         IERC20[] memory allowedNumeraires = new IERC20[](1);
-<<<<<<< HEAD:packages/foundry/test/LicenceHook.t.sol
-        allowedNumeraires[0] = numeraire;
-=======
         allowedNumeraires[0] = IERC20(address(numeraire));
->>>>>>> e72af5b (feat: updated test suite with fhe):packages/foundry/test/LicenceHook.t.sol.backup
 
         // initialize license hook
         bytes memory creationCode = type(LicenseHookHarness).creationCode;

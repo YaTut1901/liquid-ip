@@ -33,7 +33,6 @@ import {
     Common, 
     ebool
 } from "@fhenixprotocol/cofhe-contracts/FHE.sol";
-import {Permissioned} from "@fhenix/access/Permissioned.sol";
 
 struct PoolState {
     int24 startingTick; // upper tick of the curve, price is declining over time
