@@ -17,6 +17,7 @@ import {Create2} from "@openzeppelin/contracts/utils/Create2.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {IEpochLiquidityAllocationManager} from "./interfaces/IEpochLiquidityAllocationManager.sol";
 import {IRehypothecationManager} from "./interfaces/IRehypothecationManager.sol";
+import {InEuint32, InEuint256, InEuint128} from "@fhenixprotocol/cofhe-contracts/FHE.sol";
 
 contract CampaignManager is Ownable {
     int24 public constant TICK_SPACING = 30;
@@ -36,27 +37,30 @@ contract CampaignManager is Ownable {
     event PatentDelegated(uint256 patentId, address owner);
     event PatentRetrieved(uint256 patentId, address owner);
     event CampaignInitialized(uint256 patentId, address license, PoolId poolId);
+    event PrivateCampaignInitialized(uint256 patentId, address license, PoolId poolId, string publicInfo);
 
     IERC721 public immutable patentErc721;
     IPoolManager public immutable poolManager;
     LicenseHook public immutable licenseHook;
 
     mapping(IERC20 numeraire => bool isAllowed) public isAllowedNumeraires;
-    mapping(IEpochLiquidityAllocationManager epochLiquidityAllocationManager => bool isAllowed)
-        public isAllowedEpochLiquidityAllocationManagers;
-    mapping(IRehypothecationManager rehypothecationManager => bool isAllowed)
-        public isAllowedRehypothecationManagers;
+    // mapping(IEpochLiquidityAllocationManager epochLiquidityAllocationManager => bool isAllowed)
+    //     public isAllowedEpochLiquidityAllocationManagers;
+    // mapping(IRehypothecationManager rehypothecationManager => bool isAllowed)
+    //     public isAllowedRehypothecationManagers;
     mapping(uint256 delegatedPatentId => address owner) public delegatedPatents;
     mapping(uint256 patentId => uint256 campaignEndTimestamp)
         public campaignEndTimestamp;
+    mapping(uint256 patentId => bool) public isPrivateCampaign;
+    mapping(uint256 patentId => string) public privateCampaignPublicInfo;
 
     constructor(
         IPoolManager _manager,
         IERC721 _patentErc721,
         IERC20[] memory _allowedNumeraires,
-        IEpochLiquidityAllocationManager[]
-            memory _allowedEpochLiquidityAllocationManagers,
-        IRehypothecationManager[] memory _allowedRehypothecationManagers,
+        // IEpochLiquidityAllocationManager[]
+        //     memory _allowedEpochLiquidityAllocationManagers,
+        // IRehypothecationManager[] memory _allowedRehypothecationManagers,
         LicenseHook _licenseHook
     ) Ownable() {
         poolManager = _manager;
@@ -67,21 +71,21 @@ contract CampaignManager is Ownable {
             isAllowedNumeraires[_allowedNumeraires[i]] = true;
         }
 
-        for (
-            uint256 i = 0;
-            i < _allowedEpochLiquidityAllocationManagers.length;
-            i++
-        ) {
-            isAllowedEpochLiquidityAllocationManagers[
-                _allowedEpochLiquidityAllocationManagers[i]
-            ] = true;
-        }
+        // for (
+        //     uint256 i = 0;
+        //     i < _allowedEpochLiquidityAllocationManagers.length;
+        //     i++
+        // ) {
+        //     isAllowedEpochLiquidityAllocationManagers[
+        //         _allowedEpochLiquidityAllocationManagers[i]
+        //     ] = true;
+        // }
 
-        for (uint256 i = 0; i < _allowedRehypothecationManagers.length; i++) {
-            isAllowedRehypothecationManagers[
-                _allowedRehypothecationManagers[i]
-            ] = true;
-        }
+        // for (uint256 i = 0; i < _allowedRehypothecationManagers.length; i++) {
+        //     isAllowedRehypothecationManagers[
+        //         _allowedRehypothecationManagers[i]
+        //     ] = true;
+        // }
     }
 
     function onERC721Received(
@@ -107,33 +111,33 @@ contract CampaignManager is Ownable {
         isAllowedNumeraires[numeraire] = false;
     }
 
-    function addAllowedEpochLiquidityAllocationManager(
-        IEpochLiquidityAllocationManager epochLiquidityAllocationManager
-    ) external onlyOwner {
-        isAllowedEpochLiquidityAllocationManagers[
-            epochLiquidityAllocationManager
-        ] = true;
-    }
+    // function addAllowedEpochLiquidityAllocationManager(
+    //     IEpochLiquidityAllocationManager epochLiquidityAllocationManager
+    // ) external onlyOwner {
+    //     isAllowedEpochLiquidityAllocationManagers[
+    //         epochLiquidityAllocationManager
+    //     ] = true;
+    // }
 
-    function removeAllowedEpochLiquidityAllocationManager(
-        IEpochLiquidityAllocationManager epochLiquidityAllocationManager
-    ) external onlyOwner {
-        isAllowedEpochLiquidityAllocationManagers[
-            epochLiquidityAllocationManager
-        ] = false;
-    }
+    // function removeAllowedEpochLiquidityAllocationManager(
+    //     IEpochLiquidityAllocationManager epochLiquidityAllocationManager
+    // ) external onlyOwner {
+    //     isAllowedEpochLiquidityAllocationManagers[
+    //         epochLiquidityAllocationManager
+    //     ] = false;
+    // }
 
-    function addAllowedRehypothecationManager(
-        IRehypothecationManager rehypothecationManager
-    ) external onlyOwner {
-        isAllowedRehypothecationManagers[rehypothecationManager] = true;
-    }
+    // function addAllowedRehypothecationManager(
+    //     IRehypothecationManager rehypothecationManager
+    // ) external onlyOwner {
+    //     isAllowedRehypothecationManagers[rehypothecationManager] = true;
+    // }
 
-    function removeAllowedRehypothecationManager(
-        IRehypothecationManager rehypothecationManager
-    ) external onlyOwner {
-        isAllowedRehypothecationManagers[rehypothecationManager] = false;
-    }
+    // function removeAllowedRehypothecationManager(
+    //     IRehypothecationManager rehypothecationManager
+    // ) external onlyOwner {
+    //     isAllowedRehypothecationManagers[rehypothecationManager] = false;
+    // }
 
     function retrieve(uint256 patentId) external {
         require(
@@ -156,9 +160,9 @@ contract CampaignManager is Ownable {
         uint256 startingTime,
         uint256 endingTime,
         uint24 totalEpochs,
-        uint256 tokensToSell,
-        IEpochLiquidityAllocationManager epochLiquidityAllocationManager,
-        IRehypothecationManager rehypothecationManager
+        uint256 tokensToSell
+        // IEpochLiquidityAllocationManager epochLiquidityAllocationManager,
+        // IRehypothecationManager rehypothecationManager
     ) external {
         int24 epochTickRange = int24(uint24(curveTickRange) / totalEpochs);
 
@@ -172,9 +176,9 @@ contract CampaignManager is Ownable {
             startingTime,
             endingTime,
             epochTickRange,
-            totalEpochs,
-            epochLiquidityAllocationManager,
-            rehypothecationManager
+            totalEpochs
+            // epochLiquidityAllocationManager,
+            // rehypothecationManager
         );
 
         LicenseERC20 license = new LicenseERC20{salt: licenseSalt}(
@@ -203,9 +207,9 @@ contract CampaignManager is Ownable {
             endingTime,
             totalEpochs,
             tokensToSell,
-            epochTickRange,
-            epochLiquidityAllocationManager,
-            rehypothecationManager
+            epochTickRange
+            // epochLiquidityAllocationManager,
+            // rehypothecationManager
         );
 
         poolManager.initialize(
@@ -214,6 +218,88 @@ contract CampaignManager is Ownable {
         );
 
         emit CampaignInitialized(patentId, address(license), poolKey.toId());
+    }
+
+    function initializePrivate(
+        uint256 patentId,
+        string memory assetMetadataUri,
+        bytes32 licenseSalt,
+        IERC20 numeraire,
+        InEuint32 calldata encStartingTick,
+        InEuint32 calldata encCurveTickRange,
+        uint256 startingTime,
+        uint256 endingTime,
+        uint24 totalEpochs,
+        InEuint128 calldata encTokensToSell,
+        // IEpochLiquidityAllocationManager epochLiquidityAllocationManager,
+        // IRehypothecationManager rehypothecationManager,
+        string memory publicInfo
+    ) external {
+        require(delegatedPatents[patentId] != address(0), PatentNotDelegated());
+        
+        bytes32 bytecodeHash = keccak256(
+            abi.encodePacked(
+                type(LicenseERC20).creationCode,
+                abi.encode(patentErc721, patentId, assetMetadataUri)
+            )
+        );
+        address asset = Create2.computeAddress(
+            licenseSalt,
+            bytecodeHash,
+            address(this)
+        );
+        require(asset > address(numeraire), InvalidAssetNumeraireOrder());
+
+        require(startingTime < endingTime, InvalidTimeRange());
+        require(isAllowedNumeraires[numeraire], NumeraireNotAllowed());
+        // require(
+        //     isAllowedEpochLiquidityAllocationManagers[epochLiquidityAllocationManager],
+        //     EpochLiquidityAllocationManagerNotAllowed()
+        // );
+        // require(
+        //     isAllowedRehypothecationManagers[rehypothecationManager],
+        //     RehypothecationManagerNotAllowed()
+        // );
+
+        LicenseERC20 license = new LicenseERC20{salt: licenseSalt}(
+            patentErc721,
+            patentId,
+            assetMetadataUri
+        );
+
+        PoolKey memory poolKey = PoolKey({
+            currency0: Currency.wrap(address(numeraire)),
+            currency1: Currency.wrap(address(license)),
+            hooks: IHooks(licenseHook),
+            fee: 0,
+            tickSpacing: TICK_SPACING
+        });
+
+        campaignEndTimestamp[patentId] = endingTime;
+        isPrivateCampaign[patentId] = true;
+        privateCampaignPublicInfo[patentId] = publicInfo;
+
+        license.mintEncrypted(address(licenseHook), encTokensToSell);
+
+        licenseHook.initializePrivateState(
+            poolKey,
+            encStartingTick,
+            encCurveTickRange,
+            startingTime,
+            endingTime,
+            totalEpochs,
+            encTokensToSell,
+            // epochLiquidityAllocationManager,
+            // rehypothecationManager,
+            publicInfo
+        );
+
+        poolManager.initialize(
+            poolKey,
+            TickMath.getSqrtPriceAtTick(887200)
+        );
+
+        emit PrivateCampaignInitialized(patentId, address(license), poolKey.toId(), publicInfo);
     }
 
     function _validateInput(
@@ -226,9 +312,9 @@ contract CampaignManager is Ownable {
         uint256 startingTime,
         uint256 endingTime,
         int24 epochTickRange,
-        uint24 totalEpochs,
-        IEpochLiquidityAllocationManager epochLiquidityAllocationManager,
-        IRehypothecationManager rehypothecationManager
+        uint24 totalEpochs
+        // IEpochLiquidityAllocationManager epochLiquidityAllocationManager,
+        // IRehypothecationManager rehypothecationManager
     ) internal view {
         // Check that the patent is already delegated
         require(delegatedPatents[patentId] != address(0), PatentNotDelegated());
@@ -270,18 +356,18 @@ contract CampaignManager is Ownable {
         require(isAllowedNumeraires[numeraire], NumeraireNotAllowed());
 
         // Check that the epoch liquidity allocation manager is allowed
-        require(
-            isAllowedEpochLiquidityAllocationManagers[
-                epochLiquidityAllocationManager
-            ],
-            EpochLiquidityAllocationManagerNotAllowed()
-        );
+        // require(
+        //     isAllowedEpochLiquidityAllocationManagers[
+        //         epochLiquidityAllocationManager
+        //     ],
+        //     EpochLiquidityAllocationManagerNotAllowed()
+        // );
 
         // Check that the rehypothecation manager is allowed
-        require(
-            isAllowedRehypothecationManagers[rehypothecationManager],
-            RehypothecationManagerNotAllowed()
-        );
+        // require(
+        //     isAllowedRehypothecationManagers[rehypothecationManager],
+        //     RehypothecationManagerNotAllowed()
+        // );
     }
 
     function _calculateClosestProperTick(

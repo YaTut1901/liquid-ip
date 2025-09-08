@@ -20,6 +20,7 @@
     "verify": "make verify RPC_URL=${1:-localhost}"
   },
   "dependencies": {
+    "@fhenixprotocol/cofhe-contracts": "^0.0.13",
     "dotenv": "~16.3.1",
     "envfile": "~6.18.0",
     "ethers": "~5.7.1",
