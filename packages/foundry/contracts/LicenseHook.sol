@@ -117,10 +117,9 @@ contract LicenseHook is BaseHook, Ownable {
     constructor(
         IPoolManager _manager,
         PatentMetadataVerifier _verifier,
-        address owner
-    ) BaseHook(_manager) Ownable() {
+        address _owner
+    ) BaseHook(_manager) Ownable(_owner) {
         verifier = _verifier;
-        _transferOwnership(owner);
     }
 
     function getHookPermissions()

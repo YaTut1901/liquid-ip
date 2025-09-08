@@ -67,7 +67,7 @@ contract DeployScript is ScaffoldETHDeploy {
         );
 
         // Deploy a separate proxy admin to avoid admin-call fallback reverts
-        ProxyAdmin proxyAdmin = new ProxyAdmin();
+        ProxyAdmin proxyAdmin = new ProxyAdmin(deployer);
         console.log("ProxyAdmin:", address(proxyAdmin));
         deployments.push(
             Deployment({name: "ProxyAdmin", addr: address(proxyAdmin)})
@@ -146,7 +146,8 @@ contract DeployScript is ScaffoldETHDeploy {
         PatentMetadataVerifier verifier = new PatentMetadataVerifier(
             ITaskMailbox(address(mailbox)),
             operatorSetOwner,
-            operatorSetId
+            operatorSetId,
+            deployer
         );
         console.log("PatentMetadataVerifier:", address(verifier));
         deployments.push(
@@ -236,11 +237,10 @@ contract DeployScript is ScaffoldETHDeploy {
         allowedRehypManagers[0] = IRehypothecationManager(address(0));
 
         CampaignManager campaignManager = new CampaignManager(
+            deployer,
             poolManager,
             patentERC721,
             allowedNumeraires,
-            allowedEpochManagers,
-            allowedRehypManagers,
             licenseHook
         );
         console.log("CampaignManager:", address(campaignManager));

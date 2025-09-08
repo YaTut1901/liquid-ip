@@ -45,8 +45,9 @@ contract PatentMetadataVerifier is Ownable, IAVSTaskHook {
     constructor(
         ITaskMailbox _mailbox,
         address _operatorSetOwner,
-        uint32 _operatorSetId
-    ) Ownable() {
+        uint32 _operatorSetId,
+        address _owner
+    ) Ownable(_owner) {
         mailbox = _mailbox;
         operatorSetOwner = _operatorSetOwner;
         operatorSetId = _operatorSetId;

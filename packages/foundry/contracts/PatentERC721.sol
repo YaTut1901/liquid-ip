@@ -14,7 +14,7 @@ contract PatentERC721 is ERC721URIStorage, Ownable {
     constructor(
         PatentMetadataVerifier _verifier,
         address _owner
-    ) ERC721("Patent NFT", "PNFT") Ownable() {
+    ) ERC721("Patent NFT", "PNFT") Ownable(_owner) {
         verifier = _verifier;
         _nextTokenId = 1;
     }

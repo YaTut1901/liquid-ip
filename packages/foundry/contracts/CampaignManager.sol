@@ -55,6 +55,7 @@ contract CampaignManager is Ownable {
     mapping(uint256 patentId => string) public privateCampaignPublicInfo;
 
     constructor(
+        address _owner,
         IPoolManager _manager,
         IERC721 _patentErc721,
         IERC20[] memory _allowedNumeraires,
@@ -62,7 +63,7 @@ contract CampaignManager is Ownable {
         //     memory _allowedEpochLiquidityAllocationManagers,
         // IRehypothecationManager[] memory _allowedRehypothecationManagers,
         LicenseHook _licenseHook
-    ) Ownable() {
+    ) Ownable(_owner) {
         poolManager = _manager;
         patentErc721 = _patentErc721;
         licenseHook = _licenseHook;
