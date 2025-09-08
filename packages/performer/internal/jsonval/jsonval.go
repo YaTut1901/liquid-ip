@@ -17,11 +17,24 @@ func Parse(b []byte) (JSONMap, error) {
 }
 
 func PlaceholderValidate(oldM, newM JSONMap, schema JSONMap) bool {
-	// Iterate keys in new; ensure present in new; always return true for now
-	for k := range newM {
-		_ = k
+	// Default rule: every key present in old must exist in new
+	for k := range oldM {
+		if _, ok := newM[k]; !ok {
+			return false
+		}
 	}
 	return true
+}
+
+// MissingKeys returns keys present in oldM but absent in newM.
+func MissingKeys(oldM, newM JSONMap) []string {
+	var out []string
+	for k := range oldM {
+		if _, ok := newM[k]; !ok {
+			out = append(out, k)
+		}
+	}
+	return out
 }
 
 func StatusFromJSON(m JSONMap) (uint8, error) {

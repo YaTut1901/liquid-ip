@@ -44,5 +44,3 @@ require (
 	google.golang.org/protobuf v1.36.6 // indirect
 	rsc.io/tmplfunc v0.0.3 // indirect
 )
-
-replace github.com/Layr-Labs/hourglass-monorepo => /home/ivan/Projects/liquid-ip/packages/foundry/lib/hourglass-monorepo

@@ -42,55 +42,72 @@ func (w *VerifierWorker) HandleTask(t *performer.TaskRequest) (*performer.TaskRe
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 
+	w.logger.Sugar().Infow("handle.start", "taskId_len", len(t.TaskId), "payload_len", len(t.Payload))
 	id, newUri, err := abiutil.DecodeVerifyPayload(t.Payload)
 	if err != nil {
+		w.logger.Sugar().Warnw("decode payload failed", "error", err)
 		return w.result(t.TaskId, id, false, 0)
 	}
+	w.logger.Sugar().Infow("payload.decoded", "tokenId", id.String(), "newUri", newUri)
 
 	// fetch old tokenURI from ERC721
 	oldURI, err := w.eth.TokenURI(ctx, common.HexToAddress(w.cfg.Erc721PatentRegistryAddress), id)
 	if err != nil {
+		w.logger.Sugar().Warnw("tokenURI failed", "contract", w.cfg.Erc721PatentRegistryAddress, "tokenId", id.String(), "error", err)
 		return w.result(t.TaskId, id, false, 0)
 	}
+	w.logger.Sugar().Infow("tokenURI.ok", "oldUri", oldURI)
 	oldB, err := w.ipfs.Fetch(ctx, oldURI, w.maxFetch)
 	if err != nil {
+		w.logger.Sugar().Warnw("ipfs old fetch failed", "uri", oldURI, "error", err)
 		return w.result(t.TaskId, id, false, 0)
 	}
 	newB, err := w.ipfs.Fetch(ctx, newUri, w.maxFetch)
 	if err != nil {
+		w.logger.Sugar().Warnw("ipfs new fetch failed", "uri", newUri, "error", err)
 		return w.result(t.TaskId, id, false, 0)
 	}
 
 	// parse JSONs
 	oldM, err := jsonval.Parse(oldB)
 	if err != nil {
+		w.logger.Sugar().Warnw("old json parse failed", "error", err)
 		return w.result(t.TaskId, id, false, 0)
 	}
 	newM, err := jsonval.Parse(newB)
 	if err != nil {
+		w.logger.Sugar().Warnw("new json parse failed", "error", err)
 		return w.result(t.TaskId, id, false, 0)
 	}
 
 	// schema optional
 	var schemaM jsonval.JSONMap = nil
 	if w.cfg.SchemaURI != "" {
+		w.logger.Sugar().Infow("schema.fetch", "schemaUri", w.cfg.SchemaURI)
 		schemaB, err := w.ipfs.Fetch(ctx, w.cfg.SchemaURI, w.maxFetch)
 		if err != nil {
+			w.logger.Sugar().Warnw("schema fetch failed", "error", err)
 			return w.result(t.TaskId, id, false, 0)
 		}
 		schemaM, err = jsonval.Parse(schemaB)
 		if err != nil {
+			w.logger.Sugar().Warnw("schema parse failed", "error", err)
 			return w.result(t.TaskId, id, false, 0)
 		}
+		w.logger.Sugar().Infow("schema.loaded")
 	}
 
 	if !jsonval.PlaceholderValidate(oldM, newM, schemaM) {
+		missing := jsonval.MissingKeys(oldM, newM)
+		w.logger.Sugar().Infow("validation.failed", "missingKeys", missing)
 		return w.result(t.TaskId, id, false, 0)
 	}
 	status, err := jsonval.StatusFromJSON(newM)
 	if err != nil {
+		w.logger.Sugar().Warnw("status parse failed", "error", err)
 		return w.result(t.TaskId, id, false, 0)
 	}
+	w.logger.Sugar().Infow("handle.success", "tokenId", id.String(), "status", status)
 	return w.result(t.TaskId, id, true, status)
 }
 
