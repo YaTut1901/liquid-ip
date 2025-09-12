@@ -7,7 +7,7 @@ import {IPoolManager} from "@v4-core/interfaces/IPoolManager.sol";
 import {PoolKey} from "@v4-core/types/PoolKey.sol";
 import {Currency} from "@v4-core/types/Currency.sol";
 import {IHooks} from "@v4-core/interfaces/IHooks.sol";
-import {LicenseHook} from "../LicenseHook.sol";
+import {PublicLicenseHook} from "../hook/PublicLicenseHook.sol";
 import {LicenseERC20} from "../token/LicenseERC20.sol";
 import {IHooks} from "@v4-core/interfaces/IHooks.sol";
 import {TickMath} from "@v4-core/libraries/TickMath.sol";
@@ -17,21 +17,24 @@ import {PublicCampaignConfig} from "../lib/PublicCampaignConfig.sol";
 contract PublicCampaignManager is AbstractCampaignManager {
     using PublicCampaignConfig for bytes;
 
+    PublicLicenseHook public immutable licenseHook;
+
     constructor(
         address _owner,
         IPoolManager _manager,
         IERC721 _patentErc721,
         IERC20[] memory _allowedNumeraires,
-        LicenseHook _licenseHook
+        PublicLicenseHook _licenseHook
     )
         AbstractCampaignManager(
             _owner,
             _manager,
             _patentErc721,
-            _allowedNumeraires,
-            _licenseHook
+            _allowedNumeraires
         )
-    {}
+    {
+        licenseHook = _licenseHook;
+    }
 
     function initialize(
         uint256 patentId,

@@ -28,7 +28,6 @@ contract PrivateLicenseHook is AbstractLicenseHook {
     using SafeCast for int128;
 
     error ExactOutputNotAllowed();
-
     struct Position {
         euint32 tickLower;
         euint32 tickUpper;

@@ -10,7 +10,7 @@ import {Currency} from "@v4-core/types/Currency.sol";
 import {IHooks} from "@v4-core/interfaces/IHooks.sol";
 import {TickMath} from "@v4-core/libraries/TickMath.sol";
 import {console} from "forge-std/console.sol";
-import {LicenseHook} from "../LicenseHook.sol";
+import {PrivateLicenseHook} from "../hook/PrivateLicenseHook.sol";
 import {LicenseERC20} from "../token/LicenseERC20.sol";
 import {IHooks} from "@v4-core/interfaces/IHooks.sol";
 import {Create2} from "@openzeppelin/contracts/utils/Create2.sol";
@@ -22,21 +22,24 @@ import {PrivateCampaignConfig} from "../lib/PrivateCampaignConfig.sol";
 contract PublicCampaignManager is AbstractCampaignManager {
     using PrivateCampaignConfig for bytes;
 
+    PrivateLicenseHook public immutable licenseHook;
+
     constructor(
         address _owner,
         IPoolManager _manager,
         IERC721 _patentErc721,
         IERC20[] memory _allowedNumeraires,
-        LicenseHook _licenseHook
+        PrivateLicenseHook _licenseHook
     )
         AbstractCampaignManager(
             _owner,
             _manager,
             _patentErc721,
-            _allowedNumeraires,
-            _licenseHook
+            _allowedNumeraires
         )
-    {}
+    {
+        licenseHook = _licenseHook;
+    }
 
     function initialize(
         uint256 patentId,

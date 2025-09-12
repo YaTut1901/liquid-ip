@@ -5,7 +5,6 @@ import {ICampaignManager} from "../interfaces/ICampaignManager.sol";
 import {IERC721} from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IPoolManager} from "@v4-core/interfaces/IPoolManager.sol";
-import {LicenseHook} from "../LicenseHook.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {Create2} from "@openzeppelin/contracts/utils/Create2.sol";
 import {LicenseERC20} from "../token/LicenseERC20.sol";
@@ -15,7 +14,6 @@ abstract contract AbstractCampaignManager is ICampaignManager, Ownable {
 
     IERC721 public immutable patentErc721;
     IPoolManager public immutable poolManager;
-    LicenseHook public immutable licenseHook;
 
     mapping(IERC20 numeraire => bool) public allowedNumeraires;
     mapping(uint256 delegatedPatentId => address owner) public delegatedPatents;
@@ -26,12 +24,10 @@ abstract contract AbstractCampaignManager is ICampaignManager, Ownable {
         address _owner,
         IPoolManager _manager,
         IERC721 _patentErc721,
-        IERC20[] memory _allowedNumeraires,
-        LicenseHook _licenseHook
+        IERC20[] memory _allowedNumeraires
     ) Ownable(_owner) {
         poolManager = _manager;
         patentErc721 = _patentErc721;
-        licenseHook = _licenseHook;
 
         for (uint256 i = 0; i < _allowedNumeraires.length; i++) {
             allowedNumeraires[_allowedNumeraires[i]] = true;
