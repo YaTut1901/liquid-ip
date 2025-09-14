@@ -49,6 +49,7 @@ contract PublicCampaignManager is AbstractCampaignManager {
         bytes calldata campaignConfig
     ) external override {
         _validateGeneral(assetMetadataUri, patentId, licenseSalt, numeraire);
+        campaignConfig.validate();
 
         LicenseERC20 license = new LicenseERC20{salt: licenseSalt}(
             patentErc721,
@@ -67,7 +68,7 @@ contract PublicCampaignManager is AbstractCampaignManager {
         campaignEndTimestamp[patentId] = campaignConfig.endingTime();
         license.mint(address(licenseHook), campaignConfig.totalTokensToSell());
 
-        // licenseHook.initializeState(poolKey, campaignConfig);
+        licenseHook.initializeState(poolKey, campaignConfig);
 
         poolManager.initialize(
             poolKey,

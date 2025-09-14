@@ -63,7 +63,7 @@ contract PublicCampaignManager is AbstractCampaignManager {
         campaignEndTimestamp[patentId] = campaignConfig.endingTime();
         license.mint(address(licenseHook), campaignConfig.totalTokensToSell());
 
-        // licenseHook.initializeState(poolKey, campaignConfig);
+        licenseHook.initializeState(poolKey, campaignConfig);
 
         poolManager.initialize(
             poolKey,
@@ -76,6 +76,7 @@ contract PublicCampaignManager is AbstractCampaignManager {
     function _validateCampaignConfig(
         bytes calldata campaignConfig
     ) internal view {
+        campaignConfig.validate();
         uint16 epochs = campaignConfig.numEpochs();
         for (uint16 e = 0; e < epochs; ) {
             uint8 count = campaignConfig.numPositions(e);
