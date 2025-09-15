@@ -28,6 +28,7 @@
 // import {IPoolManager} from "@v4-core/interfaces/IPoolManager.sol";
 // import {IEpochLiquidityAllocationManager} from "../contracts/interfaces/IEpochLiquidityAllocationManager.sol";
 // import {IRehypothecationManager} from "../contracts/interfaces/IRehypothecationManager.sol";
+// import {RehypothecationManager} from "../contracts/RehypothecationManager.sol";
 // import {Hooks} from "@v4-core/libraries/Hooks.sol";
 // import {HookMiner} from "@v4-periphery/utils/HookMiner.sol";
 // import {MockERC20} from "./MockERC.sol";
@@ -189,6 +190,31 @@
 //         mailbox.registerExecutorOperatorSet(setKey, true);
 //         console.log("TaskMailbox configured. Hook:", address(cfg.taskHook));
 
+//         // Deploy RehypothecationManager FIRST
+//         // Mainnet Aave V3 addresses
+//         address AAVE_POOL = 0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2;
+//         address AAVE_DATA_PROVIDER = 0x7B4EB56E7CD4b454BA8ff71E4518426369a138a3;
+//         address WRAPPED_TOKEN_GATEWAY = 0xD322A49006FC828F9B5B37Ab215F99B4E5caB19C;
+//
+//         // For Sepolia deployment, use these addresses instead:
+//         // address AAVE_POOL = 0x6Ae43d3271ff6888e7Fc43Fd7321a503ff738951;
+//         // address AAVE_DATA_PROVIDER = 0x69529987FA4A075D0C00B0128fa848dc9ebbE9CE;
+//         // address WRAPPED_TOKEN_GATEWAY = 0x387d311e47e80b498169e6fb51d3193167d89F7D;
+//
+//         RehypothecationManager rehypothecationManager = new RehypothecationManager(
+//             deployer,
+//             AAVE_POOL,
+//             AAVE_DATA_PROVIDER,
+//             WRAPPED_TOKEN_GATEWAY
+//         );
+//         console.log("RehypothecationManager:", address(rehypothecationManager));
+//         deployments.push(
+//             Deployment({
+//                 name: "RehypothecationManager",
+//                 addr: address(rehypothecationManager)
+//             })
+//         );
+//
 //         // Deploy LicenseHook (owner: deployer for now) using HookMiner
 //         bytes memory creationCode = type(LicenseHook).creationCode;
 //         uint160 flags = uint160(
@@ -201,6 +227,7 @@
 //         bytes memory constructorArgs = abi.encode(
 //             IPoolManager(address(poolManager)),
 //             verifier,
+//             rehypothecationManager,
 //             deployer
 //         );
 //         (address licenseHookAddress, bytes32 salt) = HookMiner.find(
@@ -212,12 +239,17 @@
 //         LicenseHook licenseHook = new LicenseHook{salt: salt}(
 //             poolManager,
 //             verifier,
+//             rehypothecationManager,
 //             deployer
 //         );
 //         console.log("LicenseHook:", address(licenseHook));
 //         deployments.push(
 //             Deployment({name: "LicenseHook", addr: address(licenseHook)})
 //         );
+//
+//         // Authorize the LicenseHook to interact with RehypothecationManager
+//         rehypothecationManager.authorizeHook(address(licenseHook));
+//         console.log("LicenseHook authorized in RehypothecationManager");
 
 //         IERC20[] memory allowedNumeraires = new IERC20[](1);
 //         IERC20 numeraire = new MockERC20("Numeraire", "NUM");
@@ -232,9 +264,11 @@
 //             );
 //         allowedEpochManagers[0] = IEpochLiquidityAllocationManager(address(0));
 
+//         // RehypothecationManager already deployed above
+//
 //         IRehypothecationManager[]
 //             memory allowedRehypManagers = new IRehypothecationManager[](1);
-//         allowedRehypManagers[0] = IRehypothecationManager(address(0));
+//         allowedRehypManagers[0] = rehypothecationManager;
 
 //         CampaignManager campaignManager = new CampaignManager(
 //             deployer,
