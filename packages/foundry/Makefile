@@ -1,4 +1,4 @@
-.PHONY: build deploy generate-abis get-address account chain compile flatten fork format lint test verify
+.PHONY: build deploy generate-abis get-address account chain compile flatten fork format lint test verify test-integration-rand test-integration-rand-loop
 
 DEPLOY_SCRIPT ?= script/Deploy.s.sol
 
@@ -58,4 +58,24 @@ test:
 # Verify contracts
 verify:
 	forge script script/VerifyAll.s.sol --ffi --rpc-url $(RPC_URL)
+
+# Run integration tests with a randomly generated SEED env var
+test-integration-rand:
+	@SEED_HEX=$$(cast keccak "seed-$$(date +%s%N)-$$RANDOM-$$(hexdump -n 4 -e '"%u"' /dev/urandom 2>/dev/null || echo $$PPID)"); \
+	SEED_DEC=$$(cast --to-dec $$SEED_HEX); \
+	echo "Using SEED=$$SEED_DEC"; \
+	SEED=$$SEED_DEC forge test --match-path test/PublicLicenseHook.Integration.t.sol -vv
+
+# Run integration tests N times with different random seeds. Usage: make test-integration-rand-loop LOOPS=10
+test-integration-rand-loop:
+	@LOOPS=$${LOOPS:-5}; \
+	if ! command -v cast >/dev/null 2>&1; then echo "cast not found"; exit 1; fi; \
+	i=1; \
+	while [ $$i -le $$LOOPS ]; do \
+		SEED_HEX=$$(cast keccak "seed-$$i-$$(date +%s%N)-$$RANDOM-$$(hexdump -n 4 -e '"%u"' /dev/urandom 2>/dev/null || echo $$PPID)"); \
+		SEED_DEC=$$(cast --to-dec $$SEED_HEX); \
+		echo "Run $$i/$$LOOPS Using SEED=$$SEED_DEC"; \
+		SEED=$$SEED_DEC forge test --match-path test/PublicLicenseHook.Integration.t.sol -vv || exit $$?; \
+		i=$$((i+1)); \
+	done
 

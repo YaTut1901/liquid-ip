@@ -16,6 +16,11 @@ import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
 contract PublicLicenseHook is AbstractLicenseHook {
     using PublicCampaignConfig for bytes;
 
+    struct PoolState {
+        uint16 numEpochs;
+        uint16 currentEpoch;
+    }
+
     struct Position {
         int24 tickLower;
         int24 tickUpper;
@@ -27,8 +32,9 @@ contract PublicLicenseHook is AbstractLicenseHook {
         uint32 durationSeconds;
     }
 
-    mapping(PoolId poolId => bool isConfigInitialized) internal isConfigInitialized;
-    mapping(PoolId poolId => uint16 currentEpoch) internal currentEpoch;
+    mapping(PoolId poolId => bool isConfigInitialized)
+        internal isConfigInitialized;
+    mapping(PoolId poolId => PoolState poolState) internal poolState;
     mapping(PoolId poolId => mapping(uint16 epochNumber => mapping(uint8 index => Position position)))
         internal positions;
     mapping(PoolId poolId => mapping(uint16 epochNumber => Epoch epoch))
@@ -51,6 +57,12 @@ contract PublicLicenseHook is AbstractLicenseHook {
         }
 
         uint16 epochs = config.numEpochs();
+
+        poolState[poolKey.toId()] = PoolState({
+            numEpochs: epochs,
+            currentEpoch: 0
+        });
+
         PoolId poolId = poolKey.toId();
         for (uint16 e = 0; e < epochs; ) {
             epochTiming[poolId][e] = Epoch({
@@ -107,13 +119,18 @@ contract PublicLicenseHook is AbstractLicenseHook {
         bytes calldata
     ) internal override returns (bytes4, BeforeSwapDelta, uint24) {
         PoolId poolId = key.toId();
-        Epoch memory zeroEpoch = epochTiming[poolId][0];
 
-        if (block.timestamp < zeroEpoch.startingTime) {
+        if (block.timestamp < epochTiming[poolId][0].startingTime) {
             revert CampaignNotStarted();
         }
 
-        if (block.timestamp > zeroEpoch.startingTime + zeroEpoch.durationSeconds) {
+        uint256 campaignEnd = epochTiming[poolId][
+            poolState[poolId].numEpochs - 1
+        ].startingTime +
+            epochTiming[poolId][poolState[poolId].numEpochs - 1]
+                .durationSeconds;
+
+        if (block.timestamp > campaignEnd) {
             revert CampaignEnded();
         }
 
@@ -131,12 +148,12 @@ contract PublicLicenseHook is AbstractLicenseHook {
             );
         }
 
-        currentEpoch[poolId] = epochIndex;
+        poolState[poolId].currentEpoch = epochIndex;
         _cleanUpOldPositions(key, poolId, epochIndex);
         _applyNewPositions(key, poolId, epochIndex);
         _handleDeltas(key);
 
-        uint256 tokenId = LicenseERC20(Currency.unwrap(key.currency0))
+        uint256 tokenId = LicenseERC20(Currency.unwrap(key.currency1))
             .patentId();
         verifier.validate(tokenId);
 
