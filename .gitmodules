@@ -28,3 +28,9 @@
 [submodule "packages/foundry/lib/cofhe-mock-contracts"]
 	path = packages/foundry/lib/cofhe-mock-contracts
 	url = https://github.com/FhenixProtocol/cofhe-mock-contracts
+[submodule "packages/foundry/lib/aave-v3-core"]
+	path = packages/foundry/lib/aave-v3-core
+	url = https://github.com/aave/aave-v3-core
+[submodule "packages/foundry/lib/aave-v3-periphery"]
+	path = packages/foundry/lib/aave-v3-periphery
+	url = https://github.com/aave/aave-v3-periphery
