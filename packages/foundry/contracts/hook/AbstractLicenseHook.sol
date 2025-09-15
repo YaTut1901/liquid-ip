@@ -5,6 +5,7 @@ import {BaseHook} from "@v4-periphery/utils/BaseHook.sol";
 import {IPoolManager} from "@v4-core/interfaces/IPoolManager.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {PatentMetadataVerifier} from "../PatentMetadataVerifier.sol";
+import {IRehypothecationManager} from "../interfaces/IRehypothecationManager.sol";
 import {Hooks} from "@v4-core/libraries/Hooks.sol";
 import {PoolKey} from "@v4-core/types/PoolKey.sol";
 import {PoolId} from "@v4-core/types/PoolId.sol";
@@ -32,13 +33,16 @@ abstract contract AbstractLicenseHook is BaseHook, Ownable {
     error CampaignEnded();
 
     PatentMetadataVerifier public immutable verifier;
+    IRehypothecationManager public immutable rehypothecationManager;
 
     constructor(
         IPoolManager _manager,
         PatentMetadataVerifier _verifier,
+        IRehypothecationManager _rehypothecationManager,
         address _owner
     ) BaseHook(_manager) Ownable(_owner) {
         verifier = _verifier;
+        rehypothecationManager = _rehypothecationManager;
     }
 
     function getHookPermissions()
@@ -108,11 +112,11 @@ abstract contract AbstractLicenseHook is BaseHook, Ownable {
     }
 
     function _handleDeltas(PoolKey memory key) internal {
-        _handleDelta(key.currency0);
-        _handleDelta(key.currency1);
+        _handleDelta(key, key.currency0);
+        _handleDelta(key, key.currency1);
     }
 
-    function _handleDelta(Currency currency) internal {
+    function _handleDelta(PoolKey memory key, Currency currency) internal {
         int256 delta = poolManager.currencyDelta(address(this), currency);
 
         if (delta < 0) {
@@ -120,8 +124,22 @@ abstract contract AbstractLicenseHook is BaseHook, Ownable {
             currency.transfer(address(poolManager), uint256(-delta));
             poolManager.settle();
         } else if (delta > 0) {
-            // IRehypothecationManager.rehypothecate(currency, delta); - rehypothecate currency to other financial instruments
             poolManager.take(currency, address(this), uint256(delta));
+
+            // rehypothecate
+            if (address(rehypothecationManager) != address(0)) {
+                PoolId poolId = key.toId();
+                uint256 amount = uint256(delta);
+
+                // eth send as msg.value
+                if (Currency.unwrap(currency) == address(0)) {
+                    rehypothecationManager.deposit{value: amount}(poolId, currency, amount);
+                } else {
+                    // Transfer tokens to RehypothecationManager first
+                    currency.transfer(address(rehypothecationManager), amount);
+                    rehypothecationManager.deposit(poolId, currency, amount);
+                }
+            }
         }
     }
 

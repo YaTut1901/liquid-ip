@@ -4,6 +4,7 @@ pragma solidity ^0.8.27;
 import {AbstractLicenseHook} from "./AbstractLicenseHook.sol";
 import {IPoolManager} from "@v4-core/interfaces/IPoolManager.sol";
 import {PatentMetadataVerifier} from "../PatentMetadataVerifier.sol";
+import {IRehypothecationManager} from "../interfaces/IRehypothecationManager.sol";
 import {PoolKey} from "@v4-core/types/PoolKey.sol";
 import {PoolId} from "@v4-core/types/PoolId.sol";
 import {PublicCampaignConfig} from "../lib/PublicCampaignConfig.sol";
@@ -39,8 +40,9 @@ contract PublicLicenseHook is AbstractLicenseHook {
     constructor(
         IPoolManager _manager,
         PatentMetadataVerifier _verifier,
+        IRehypothecationManager _rehypothecationManager,
         address _owner
-    ) AbstractLicenseHook(_manager, _verifier, _owner) {}
+    ) AbstractLicenseHook(_manager, _verifier, _rehypothecationManager, _owner) {}
 
     function _initializeState(
         PoolKey memory poolKey,

@@ -4,6 +4,7 @@ pragma solidity ^0.8.27;
 import {AbstractLicenseHook} from "./AbstractLicenseHook.sol";
 import {IPoolManager} from "@v4-core/interfaces/IPoolManager.sol";
 import {PatentMetadataVerifier} from "../PatentMetadataVerifier.sol";
+import {IRehypothecationManager} from "../interfaces/IRehypothecationManager.sol";
 import {PrivateCampaignConfig} from "../lib/PrivateCampaignConfig.sol";
 import {InEuint32, InEuint128, euint32, euint128, euint64, euint16, ebool} from "@fhenixprotocol/cofhe-contracts/FHE.sol";
 import {PoolId} from "@v4-core/types/PoolId.sol";
@@ -61,8 +62,9 @@ contract PrivateLicenseHook is AbstractLicenseHook {
     constructor(
         IPoolManager _manager,
         PatentMetadataVerifier _verifier,
+        IRehypothecationManager _rehypothecationManager,
         address _owner
-    ) AbstractLicenseHook(_manager, _verifier, _owner) {}
+    ) AbstractLicenseHook(_manager, _verifier, _rehypothecationManager, _owner) {}
 
     function getHookPermissions()
         public
