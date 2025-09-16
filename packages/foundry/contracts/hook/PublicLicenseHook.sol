@@ -12,6 +12,8 @@ import {BeforeSwapDelta, BeforeSwapDeltaLibrary} from "@v4-core/types/BeforeSwap
 import {SwapParams, ModifyLiquidityParams} from "@v4-core/types/PoolOperation.sol";
 import {LicenseERC20} from "../token/LicenseERC20.sol";
 import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
+import {StateLibrary} from "@uniswap/v4-core/src/libraries/StateLibrary.sol";
+import {TickMath} from "@v4-core/libraries/TickMath.sol";
 
 contract PublicLicenseHook is AbstractLicenseHook {
     using PublicCampaignConfig for bytes;
@@ -30,6 +32,7 @@ contract PublicLicenseHook is AbstractLicenseHook {
     struct Epoch {
         uint64 startingTime;
         uint32 durationSeconds;
+        int24 epochStartingTick;
     }
 
     mapping(PoolId poolId => bool isConfigInitialized)
@@ -38,9 +41,10 @@ contract PublicLicenseHook is AbstractLicenseHook {
     mapping(PoolId poolId => mapping(uint16 epochNumber => mapping(uint8 index => Position position)))
         internal positions;
     mapping(PoolId poolId => mapping(uint16 epochNumber => Epoch epoch))
-        internal epochTiming;
+        internal epochs;
     mapping(PoolId poolId => mapping(uint16 epochNumber => bool initialized))
         internal isEpochInitialized;
+    mapping(PoolId poolId => bool anchoring) internal isAnchoring;
 
     constructor(
         IPoolManager _manager,
@@ -56,18 +60,19 @@ contract PublicLicenseHook is AbstractLicenseHook {
             revert ConfigAlreadyInitialized();
         }
 
-        uint16 epochs = config.numEpochs();
+        uint16 numEpochs = config.numEpochs();
 
         poolState[poolKey.toId()] = PoolState({
-            numEpochs: epochs,
+            numEpochs: numEpochs,
             currentEpoch: 0
         });
 
         PoolId poolId = poolKey.toId();
-        for (uint16 e = 0; e < epochs; ) {
-            epochTiming[poolId][e] = Epoch({
+        for (uint16 e = 0; e < numEpochs; ) {
+            epochs[poolId][e] = Epoch({
                 startingTime: config.epochStartingTime(e),
-                durationSeconds: config.durationSeconds(e)
+                durationSeconds: config.durationSeconds(e),
+                epochStartingTick: config.epochStartingTick(e)
             });
 
             uint8 count = config.numPositions(e);
@@ -113,25 +118,34 @@ contract PublicLicenseHook is AbstractLicenseHook {
     }
 
     function _beforeSwap(
-        address,
+        address sender,
         PoolKey calldata key,
         SwapParams calldata params,
         bytes calldata
     ) internal override returns (bytes4, BeforeSwapDelta, uint24) {
         PoolId poolId = key.toId();
 
-        if (block.timestamp < epochTiming[poolId][0].startingTime) {
+        if (block.timestamp < epochs[poolId][0].startingTime) {
             revert CampaignNotStarted();
         }
-
-        uint256 campaignEnd = epochTiming[poolId][
-            poolState[poolId].numEpochs - 1
+        
+        uint16 numEpochs = poolState[poolId].numEpochs;
+        uint256 campaignEnd = epochs[poolId][
+            numEpochs - 1
         ].startingTime +
-            epochTiming[poolId][poolState[poolId].numEpochs - 1]
+            epochs[poolId][numEpochs - 1]
                 .durationSeconds;
 
         if (block.timestamp > campaignEnd) {
             revert CampaignEnded();
+        }
+
+        if (isAnchoring[poolId]) {
+            return (
+                BaseHook.beforeSwap.selector,
+                BeforeSwapDeltaLibrary.ZERO_DELTA,
+                0
+            );
         }
 
         uint16 epochIndex = _calculateCurrentEpochIndex(poolId);
@@ -150,6 +164,7 @@ contract PublicLicenseHook is AbstractLicenseHook {
 
         poolState[poolId].currentEpoch = epochIndex;
         _cleanUpOldPositions(key, poolId, epochIndex);
+        _adjustTick(key, poolId, epochIndex);
         _applyNewPositions(key, poolId, epochIndex);
         _handleDeltas(key);
 
@@ -164,6 +179,99 @@ contract PublicLicenseHook is AbstractLicenseHook {
             BeforeSwapDeltaLibrary.ZERO_DELTA,
             0
         );
+    }
+
+    function _adjustTick(
+        PoolKey memory key,
+        PoolId poolId,
+        uint16 epochIndex
+    ) internal {
+        isAnchoring[poolId] = true;
+        Epoch memory epoch = epochs[poolId][epochIndex];
+
+        (, int24 currentTick,,) = StateLibrary.getSlot0(poolManager, poolId);
+        int24 spacing = key.tickSpacing;
+
+        int24 currentAligned = _alignToSpacing(currentTick, spacing);
+        int24 targetAligned = _alignToSpacing(epoch.epochStartingTick, spacing);
+
+        if (targetAligned == currentAligned) {
+            return;
+        }
+
+        bool moveRight = targetAligned > currentAligned; 
+
+        int24 tickLower = moveRight ? currentAligned : targetAligned;
+        int24 tickUpper = moveRight ? targetAligned : currentAligned + spacing;
+        if (tickUpper <= tickLower) {
+            tickUpper = tickLower + spacing;
+        }
+
+        uint256 anchorAmount = 1e12; 
+        int256 liquidityDelta = _computeLiquidity(
+            tickLower,
+            tickUpper,
+            anchorAmount,
+            moveRight
+        );
+        if (liquidityDelta == 0) {
+            liquidityDelta = _computeLiquidity(
+                tickLower,
+                tickUpper,
+                anchorAmount * 1e6,
+                moveRight
+            );
+            if (liquidityDelta == 0) return;
+        }
+
+        bytes32 salt = keccak256("ANCHOR_TICK");
+
+        poolManager.modifyLiquidity(
+            key,
+            ModifyLiquidityParams({
+                tickLower: tickLower,
+                tickUpper: tickUpper,
+                liquidityDelta: liquidityDelta,
+                salt: salt
+            }),
+            ""
+        );
+
+        uint160 limit = moveRight
+            ? TickMath.getSqrtPriceAtTick(targetAligned)
+            : TickMath.getSqrtPriceAtTick(targetAligned - 1);
+
+        poolManager.swap(
+            key,
+            SwapParams({
+                zeroForOne: !moveRight,
+                amountSpecified: -int256(1e30),
+                sqrtPriceLimitX96: limit
+            }),
+            ""
+        );
+
+        poolManager.modifyLiquidity(
+            key,
+            ModifyLiquidityParams({
+                tickLower: tickLower,
+                tickUpper: tickUpper,
+                liquidityDelta: -liquidityDelta,
+                salt: salt
+            }),
+            ""
+        );
+
+        isAnchoring[poolId] = false;
+    }
+
+    function _alignToSpacing(int24 tick, int24 spacing) internal pure returns (int24) {
+        int24 quotient = tick / spacing;
+        int24 remainder = tick % spacing;
+        if (remainder != 0 && tick < 0) {
+            quotient -= 1;
+        }
+        return quotient * spacing;
     }
 
     function _applyNewPositions(
@@ -229,7 +337,7 @@ contract PublicLicenseHook is AbstractLicenseHook {
     ) internal view returns (uint16) {
         uint16 idx = 0;
         while (true) {
-            Epoch memory ep = epochTiming[poolId][idx];
+            Epoch memory ep = epochs[poolId][idx];
             if (ep.startingTime == 0) {
                 break;
             }

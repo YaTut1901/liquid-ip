@@ -19,6 +19,8 @@ import {toBeforeSwapDelta} from "@uniswap/v4-core/src/types/BeforeSwapDelta.sol"
 import {SafeCast} from "@uniswap/v4-core/src/libraries/SafeCast.sol";
 import {BalanceDelta, BalanceDeltaLibrary} from "@uniswap/v4-core/src/types/BalanceDelta.sol";
 import {CurrencySettler} from "@uniswap/v4-core/test/utils/CurrencySettler.sol";
+import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
+import {StateLibrary} from "@uniswap/v4-core/src/libraries/StateLibrary.sol";
 
 contract PrivateLicenseHook is AbstractLicenseHook {
     using PrivateCampaignConfig for bytes;
@@ -26,8 +28,17 @@ contract PrivateLicenseHook is AbstractLicenseHook {
     using BalanceDeltaLibrary for BalanceDelta;
     using SafeCast for uint256;
     using SafeCast for int128;
+    using TickMath for int24;
+    using StateLibrary for IPoolManager;
 
     error ExactOutputNotAllowed();
+    error OngoingMaintenance();
+
+    struct PoolState {
+        uint16 numEpochs;
+        uint16 currentEpoch;
+    }
+
     struct Position {
         euint32 tickLower;
         euint32 tickUpper;
@@ -46,17 +57,18 @@ contract PrivateLicenseHook is AbstractLicenseHook {
     }
 
     mapping(PoolId poolId => bool) internal isConfigInitialized;
-    mapping(PoolId poolId => uint16) internal currentEpoch;
+    mapping(PoolId poolId => PoolState poolState) internal poolState;
     mapping(PoolId poolId => mapping(uint16 epochNumber => mapping(uint8 index => Position)))
         internal positions;
     mapping(PoolId poolId => mapping(uint16 epochNumber => Epoch))
-        internal epochTiming;
+        internal epochs;
     // are new positions applied to the pool manager
     mapping(PoolId poolId => mapping(uint16 epochNumber => bool))
         internal isEpochInitialized;
     mapping(PoolId poolId => mapping(uint16 epochNumber => bool))
         internal isDecryptionRequested;
-    mapping(PoolId poolId => PendingSwap[]) internal pendingSwaps;
+    mapping(PoolId poolId => PendingSwap) internal pendingSwaps;
+    mapping(PoolId poolId => bool anchoring) internal isAnchoring;
 
     constructor(
         IPoolManager _manager,
@@ -99,12 +111,17 @@ contract PrivateLicenseHook is AbstractLicenseHook {
             revert ConfigAlreadyInitialized();
         }
 
-        uint16 epochs = config.numEpochs();
+        uint16 numEpochs = config.numEpochs();
 
-        for (uint16 e = 0; e < epochs; e++) {
+        poolState[poolId] = PoolState({
+            numEpochs: numEpochs,
+            currentEpoch: 0
+        });
+
+        for (uint16 e = 0; e < numEpochs; e++) {
             uint8 numPositions = config.numPositions(e);
 
-            epochTiming[poolId][e] = Epoch({
+            epochs[poolId][e] = Epoch({
                 startingTime: config.epochStartingTime(e),
                 durationSeconds: config.durationSeconds(e),
                 numPositions: numPositions
@@ -152,20 +169,18 @@ contract PrivateLicenseHook is AbstractLicenseHook {
         bytes calldata
     ) internal override returns (bytes4, BeforeSwapDelta, uint24) {
         PoolId poolId = key.toId();
-        Epoch memory zeroEpoch = epochTiming[poolId][0];
-
-        // send patent validation request
-        uint256 tokenId = LicenseERC20(Currency.unwrap(key.currency1))
-            .patentId();
-        verifier.validate(tokenId);
 
         // check if campaign has started
-        if (block.timestamp < zeroEpoch.startingTime) {
+        if (block.timestamp < epochs[poolId][0].startingTime) {
             revert CampaignNotStarted();
         }
 
         // check if campaign has ended
-        if (block.timestamp > zeroEpoch.startingTime + zeroEpoch.durationSeconds) {
+        uint16 numEpochs = poolState[poolId].numEpochs;
+        uint256 campaignEnd = epochs[poolId][numEpochs - 1].startingTime +
+            epochs[poolId][numEpochs - 1].durationSeconds;
+
+        if (block.timestamp > campaignEnd) {
             revert CampaignEnded();
         }
 
@@ -176,6 +191,14 @@ contract PrivateLicenseHook is AbstractLicenseHook {
         // exact output swaps are not allowed because async swaps are not possible with them
         if (params.amountSpecified > 0) {
             revert ExactOutputNotAllowed();
+        }
+
+        if (isAnchoring[poolId]) {
+            return (
+                BaseHook.beforeSwap.selector,
+                BeforeSwapDeltaLibrary.ZERO_DELTA,
+                0
+            );
         }
 
         // execute previous epochs pending swaps
@@ -190,6 +213,11 @@ contract PrivateLicenseHook is AbstractLicenseHook {
                 0
             );
         }
+
+        // send patent validation request
+        uint256 tokenId = LicenseERC20(Currency.unwrap(key.currency1))
+            .patentId();
+        verifier.validate(tokenId);
 
         if (!_isDecryptionResultReady(poolId, epochIndex)) {
             // if it is not decrypted then save swap for async execution
@@ -211,9 +239,22 @@ contract PrivateLicenseHook is AbstractLicenseHook {
         }
 
         // initialize epoch
-        currentEpoch[poolId] = epochIndex;
+        poolState[poolId].currentEpoch = epochIndex;
+
+        // if epoch has no positions, mark initialized and skip adjustments
+        Epoch memory epoch = epochs[poolId][epochIndex];
+        if (epoch.numPositions == 0) {
+            isEpochInitialized[poolId][epochIndex] = true;
+            emit LiquidityAllocated(poolId, epochIndex);
+            return (
+                BaseHook.beforeSwap.selector,
+                BeforeSwapDeltaLibrary.ZERO_DELTA,
+                0
+            );
+        }
 
         _cleanUpOldPositions(key, poolId, epochIndex);
+        _adjustTick(key, poolId, epochIndex);
         _applyNewPositions(key, poolId, epochIndex);
         _handleDeltas(key);
 
@@ -225,33 +266,139 @@ contract PrivateLicenseHook is AbstractLicenseHook {
         );
     }
 
-    function _executePendingSwaps(PoolId poolId, PoolKey memory key) internal {
-        PendingSwap[] storage swaps = pendingSwaps[poolId];
+    function _findEpochStartingTick(
+        PoolId poolId,
+        uint8 numPositions,
+        uint16 epochIndex
+    ) internal view returns (int24) {
+        int24 maxUpper = type(int24).min;
 
-        for (uint16 i = 0; i < swaps.length; i++) {
-            _executePendingSwap(poolId, key, swaps[i]);
+        for (uint8 i = 0; i < numPositions; i++) {
+            Position memory position = positions[poolId][epochIndex][i];
+            int24 upperTick = int24(
+                int32(FHE.getDecryptResult(position.tickUpper))
+            );
+            if (upperTick > maxUpper) {
+                maxUpper = upperTick;
+            }
         }
-
-        delete pendingSwaps[poolId];
+        return maxUpper;
     }
 
-    function _executePendingSwap(
-        PoolId poolId,
+    function _adjustTick(
         PoolKey memory key,
-        PendingSwap memory pendingSwap
+        PoolId poolId,
+        uint16 epochIndex
     ) internal {
+        isAnchoring[poolId] = true;
+        Epoch memory epoch = epochs[poolId][epochIndex];
+
+        (, int24 currentTick,,) = StateLibrary.getSlot0(poolManager, poolId);
+        int24 spacing = key.tickSpacing;
+
+        int24 currentAligned = _alignToSpacing(currentTick, spacing);
+        int24 targetAligned = _alignToSpacing(_findEpochStartingTick(poolId, epoch.numPositions, epochIndex), spacing);
+
+        if (targetAligned == currentAligned) {
+            return;
+        }
+
+        bool moveRight = targetAligned > currentAligned; 
+
+        int24 tickLower = moveRight ? currentAligned : targetAligned;
+        int24 tickUpper = moveRight ? targetAligned : currentAligned + spacing;
+        if (tickUpper <= tickLower) {
+            tickUpper = tickLower + spacing;
+        }
+
+        uint256 anchorAmount = 1e12; 
+        int256 liquidityDelta = _computeLiquidity(
+            tickLower,
+            tickUpper,
+            anchorAmount,
+            moveRight
+        );
+        if (liquidityDelta == 0) {
+            liquidityDelta = _computeLiquidity(
+                tickLower,
+                tickUpper,
+                anchorAmount * 1e6,
+                moveRight
+            );
+            if (liquidityDelta == 0) return;
+        }
+
+        bytes32 salt = keccak256("ANCHOR_TICK");
+
+        poolManager.modifyLiquidity(
+            key,
+            ModifyLiquidityParams({
+                tickLower: tickLower,
+                tickUpper: tickUpper,
+                liquidityDelta: liquidityDelta,
+                salt: salt
+            }),
+            ""
+        );
+
+        uint160 limit = moveRight
+            ? TickMath.getSqrtPriceAtTick(targetAligned)
+            : TickMath.getSqrtPriceAtTick(targetAligned - 1);
+
+        poolManager.swap(
+            key,
+            SwapParams({
+                zeroForOne: !moveRight,
+                amountSpecified: -int256(1e30),
+                sqrtPriceLimitX96: limit
+            }),
+            ""
+        );
+
+        poolManager.modifyLiquidity(
+            key,
+            ModifyLiquidityParams({
+                tickLower: tickLower,
+                tickUpper: tickUpper,
+                liquidityDelta: -liquidityDelta,
+                salt: salt
+            }),
+            ""
+        );
+
+        isAnchoring[poolId] = false;
+    }
+
+    function _alignToSpacing(int24 tick, int24 spacing) internal pure returns (int24) {
+        int24 quotient = tick / spacing;
+        int24 remainder = tick % spacing;
+        if (remainder != 0 && tick < 0) {
+            quotient -= 1;
+        }
+        return quotient * spacing;
+    }
+
+    function _executePendingSwaps(PoolId poolId, PoolKey memory key) internal {
+        PendingSwap storage swap = pendingSwaps[poolId];
+
+        if (swap.params.amountSpecified == 0) {
+            return;
+        }
+
         key.currency0.settle(
             poolManager,
             address(this),
-            uint256(-pendingSwap.params.amountSpecified),
+            uint256(-swap.params.amountSpecified),
             true
         );
         key.currency0.settle(
             poolManager,
-            address(this),
-            uint256(-pendingSwap.params.amountSpecified),
+            swap.sender,
+            uint256(-swap.params.amountSpecified),
             false
         );
+
+        delete pendingSwaps[poolId];
     }
 
     function _savePendingSwap(
@@ -260,6 +407,10 @@ contract PrivateLicenseHook is AbstractLicenseHook {
         SwapParams calldata params,
         PoolKey memory key
     ) internal {
+        if (pendingSwaps[poolId].sender != address(0)) {
+            revert OngoingMaintenance();
+        }
+
         // mint claim tokens for numeraire specified by user
         key.currency0.take(
             poolManager,
@@ -268,13 +419,11 @@ contract PrivateLicenseHook is AbstractLicenseHook {
             true
         );
 
-        pendingSwaps[poolId].push(
-            PendingSwap({sender: sender, params: params})
-        );
+        pendingSwaps[poolId] = PendingSwap({sender: sender, params: params});
     }
 
     function _requestDecryption(PoolId poolId, uint16 epochIndex) internal {
-        Epoch memory epoch = epochTiming[poolId][epochIndex];
+        Epoch memory epoch = epochs[poolId][epochIndex];
 
         for (uint8 i = 0; i < epoch.numPositions; i++) {
             Position memory position = positions[poolId][epochIndex][i];
@@ -294,7 +443,10 @@ contract PrivateLicenseHook is AbstractLicenseHook {
         PoolId poolId,
         uint16 epochIndex
     ) internal view returns (bool) {
-        Epoch memory epoch = epochTiming[poolId][epochIndex];
+        Epoch memory epoch = epochs[poolId][epochIndex];
+        if (epoch.numPositions == 0) {
+            return true;
+        }
         Position memory position = positions[poolId][epochIndex][
             epoch.numPositions - 1
         ];
@@ -307,7 +459,8 @@ contract PrivateLicenseHook is AbstractLicenseHook {
         PoolId poolId,
         uint16 epochIndex
     ) internal {
-        for (uint8 i = 0; i < type(uint8).max; i++) {
+        Epoch memory epoch = epochs[poolId][epochIndex];
+        for (uint8 i = 0; i < epoch.numPositions; i++) {
             Position memory position = positions[poolId][epochIndex][i];
 
             int24 tickLower = int24(
@@ -321,7 +474,7 @@ contract PrivateLicenseHook is AbstractLicenseHook {
             );
 
             if (amountAllocated == 0) {
-                break;
+                continue;
             }
 
             poolManager.modifyLiquidity(
@@ -354,8 +507,17 @@ contract PrivateLicenseHook is AbstractLicenseHook {
                 continue;
             }
 
-            for (uint8 i = 0; i < type(uint8).max; i++) {
+            Epoch memory ep = epochs[poolId][epoch];
+            for (uint8 i = 0; i < ep.numPositions; i++) {
                 Position memory position = positions[poolId][epoch][i];
+
+                uint128 amountAllocated = FHE.getDecryptResult(
+                    position.amountAllocated
+                );
+
+                if (amountAllocated == 0) {
+                    continue;
+                }
 
                 int24 tickLower = int24(
                     int32(FHE.getDecryptResult(position.tickLower))
@@ -363,13 +525,6 @@ contract PrivateLicenseHook is AbstractLicenseHook {
                 int24 tickUpper = int24(
                     int32(FHE.getDecryptResult(position.tickUpper))
                 );
-                uint128 amountAllocated = FHE.getDecryptResult(
-                    position.amountAllocated
-                );
-
-                if (amountAllocated == 0) {
-                    break;
-                }
 
                 poolManager.modifyLiquidity(
                     key,
@@ -397,7 +552,7 @@ contract PrivateLicenseHook is AbstractLicenseHook {
     ) internal view returns (uint16) {
         uint16 idx = 0;
         while (true) {
-            Epoch memory ep = epochTiming[poolId][idx];
+            Epoch memory ep = epochs[poolId][idx];
             if (ep.startingTime == 0) {
                 break;
             }
