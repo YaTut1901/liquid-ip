@@ -157,7 +157,7 @@ contract PrivateLicenseHook is AbstractLicenseHook {
         Epoch memory zeroEpoch = epochTiming[poolId][0];
 
         // send patent validation request
-        uint256 tokenId = LicenseERC20(Currency.unwrap(key.currency0))
+        uint256 tokenId = LicenseERC20(Currency.unwrap(key.currency1))
             .patentId();
         verifier.validate(tokenId);
 

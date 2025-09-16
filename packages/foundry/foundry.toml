@@ -8,6 +8,7 @@ bytecode_hash = "none"
 optimizer = true
 optimizer_runs = 1000
 code_size_limit = 100000
+unchecked_cheatcode_artifacts = true
 
 [profile.coverage]
 via_ir = true

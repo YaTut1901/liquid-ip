@@ -16,6 +16,7 @@ import {SafeCastLib} from "@solady/utils/SafeCastLib.sol";
 import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
 import {TransientStateLibrary} from "@v4-core/libraries/TransientStateLibrary.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {LicenseERC20} from "../token/LicenseERC20.sol";
 
 abstract contract AbstractLicenseHook is BaseHook, Ownable {
     using SafeCastLib for uint128;
@@ -32,6 +33,7 @@ abstract contract AbstractLicenseHook is BaseHook, Ownable {
     error ConfigAlreadyInitialized();
     error RedeemNotAllowed();
     error CampaignEnded();
+    error WrongCurrencyOrder();
 
     PatentMetadataVerifier public immutable verifier;
     IRehypothecationManager public immutable rehypothecationManager;
@@ -78,6 +80,9 @@ abstract contract AbstractLicenseHook is BaseHook, Ownable {
         PoolKey memory poolKey,
         bytes calldata state
     ) external onlyOwner {
+        if (LicenseERC20(Currency.unwrap(poolKey.currency1)).patentId() == 0) {
+            revert WrongCurrencyOrder();
+        }
         _initializeState(poolKey, state);
         emit PoolStateInitialized(poolKey.toId());
     }
