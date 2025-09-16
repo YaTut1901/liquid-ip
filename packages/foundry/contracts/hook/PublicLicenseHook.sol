@@ -136,7 +136,7 @@ contract PublicLicenseHook is AbstractLicenseHook {
         currentEpoch[poolId] = epochIndex;
         _cleanUpOldPositions(key, poolId, epochIndex);
         _applyNewPositions(key, poolId, epochIndex);
-        _handleDeltas(key);
+        _handleDeltas(key, epochIndex);
 
         uint256 tokenId = LicenseERC20(Currency.unwrap(key.currency0))
             .patentId();
@@ -204,6 +204,9 @@ contract PublicLicenseHook is AbstractLicenseHook {
                     ""
                 );
             }
+
+            // Flush pending rehypothecation for this ended epoch (numeraire only)
+            _flushRehypothecation(poolId, epoch, key.currency1);
 
             isEpochInitialized[poolId][epoch] = false;
         }

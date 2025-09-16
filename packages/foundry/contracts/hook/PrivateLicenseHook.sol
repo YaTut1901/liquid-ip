@@ -217,7 +217,7 @@ contract PrivateLicenseHook is AbstractLicenseHook {
 
         _cleanUpOldPositions(key, poolId, epochIndex);
         _applyNewPositions(key, poolId, epochIndex);
-        _handleDeltas(key);
+        _handleDeltas(key, epochIndex);
 
         emit LiquidityAllocated(poolId, epochIndex);
         return (
@@ -389,6 +389,9 @@ contract PrivateLicenseHook is AbstractLicenseHook {
                     ""
                 );
             }
+
+            // Flush pending rehypothecation for this ended epoch (numeraire only)
+            _flushRehypothecation(poolId, epoch, key.currency1);
 
             isEpochInitialized[poolId][epoch] = false;
         }

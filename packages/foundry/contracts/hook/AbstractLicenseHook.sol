@@ -15,6 +15,7 @@ import {TickMath} from "@v4-core/libraries/TickMath.sol";
 import {SafeCastLib} from "@solady/utils/SafeCastLib.sol";
 import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
 import {TransientStateLibrary} from "@v4-core/libraries/TransientStateLibrary.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 abstract contract AbstractLicenseHook is BaseHook, Ownable {
     using SafeCastLib for uint128;
@@ -34,6 +35,8 @@ abstract contract AbstractLicenseHook is BaseHook, Ownable {
 
     PatentMetadataVerifier public immutable verifier;
     IRehypothecationManager public immutable rehypothecationManager;
+
+    mapping(PoolId => mapping(uint16 epochIndex => mapping(Currency => uint256))) public pendingRehypothecations;
 
     constructor(
         IPoolManager _manager,
@@ -111,12 +114,12 @@ abstract contract AbstractLicenseHook is BaseHook, Ownable {
                 .toInt256();
     }
 
-    function _handleDeltas(PoolKey memory key) internal {
-        _handleDelta(key, key.currency0);
-        _handleDelta(key, key.currency1);
+    function _handleDeltas(PoolKey memory key, uint16 epochIndex) internal {
+        _handleDelta(key, key.currency0, epochIndex); 
+        _handleDelta(key, key.currency1, epochIndex);
     }
 
-    function _handleDelta(PoolKey memory key, Currency currency) internal {
+    function _handleDelta(PoolKey memory key, Currency currency, uint16 epochIndex) internal {
         int256 delta = poolManager.currencyDelta(address(this), currency);
 
         if (delta < 0) {
@@ -126,19 +129,32 @@ abstract contract AbstractLicenseHook is BaseHook, Ownable {
         } else if (delta > 0) {
             poolManager.take(currency, address(this), uint256(delta));
 
-            // rehypothecate
             if (address(rehypothecationManager) != address(0)) {
                 PoolId poolId = key.toId();
-                uint256 amount = uint256(delta);
+                pendingRehypothecations[poolId][epochIndex][currency] += uint256(delta);
+            }
+        }
+    }
 
-                // eth send as msg.value
-                if (Currency.unwrap(currency) == address(0)) {
-                    rehypothecationManager.deposit{value: amount}(poolId, currency, amount);
-                } else {
-                    // Transfer tokens to RehypothecationManager first
-                    currency.transfer(address(rehypothecationManager), amount);
-                    rehypothecationManager.deposit(poolId, currency, amount);
-                }
+    function _flushRehypothecation(
+        PoolId poolId,
+        uint16 epochIndex,
+        Currency numeraire
+    ) internal {
+        uint256 amount = pendingRehypothecations[poolId][epochIndex][numeraire];
+
+        if (amount > 0 && address(rehypothecationManager) != address(0)) {
+            pendingRehypothecations[poolId][epochIndex][numeraire] = 0;
+
+            // deposit() to RehypothecationManager
+            if (Currency.unwrap(numeraire) == address(0)) {
+                // eth, send as msg.value
+                rehypothecationManager.deposit{value: amount}(poolId, numeraire, amount);
+            } else {
+                // approve and rehypothecation will transferFrom
+                IERC20 token = IERC20(Currency.unwrap(numeraire));
+                token.approve(address(rehypothecationManager), amount);
+                rehypothecationManager.deposit(poolId, numeraire, amount);
             }
         }
     }
