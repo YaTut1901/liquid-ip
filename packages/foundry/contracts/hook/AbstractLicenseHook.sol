@@ -141,7 +141,7 @@ abstract contract AbstractLicenseHook is BaseHook, Ownable {
         }
     }
 
-    function _flushRehypothecation(
+    function _rehypothecation(
         PoolId poolId,
         uint16 epochIndex,
         Currency numeraire

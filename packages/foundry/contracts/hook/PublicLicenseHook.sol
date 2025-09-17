@@ -93,6 +93,22 @@ contract PublicLicenseHook is AbstractLicenseHook {
         }
 
         isConfigInitialized[poolId] = true;
+
+        // initalize campaign in rehyp manager
+        if (address(rehypothecationManager) != address(0)) {
+            uint256 totalDuration = 0;
+            for (uint16 e = 0; e < epochs; e++) {
+                totalDuration += epochTiming[poolId][e].durationSeconds;
+            }
+            Currency numeraire = poolKey.currency0;
+
+            rehypothecationManager.initializeCampaign(
+                poolId,
+                numeraire,           // numeraire currency
+                owner(),             // campaign owner
+                totalDuration
+            );
+        }
     }
 
     /// @notice Checks that the sender is the LicenseHook contract otherwise reverts
@@ -220,10 +236,10 @@ contract PublicLicenseHook is AbstractLicenseHook {
                     }),
                     ""
                 );
+                _handleDeltas(key, epoch);
             }
 
-            // Flush pending rehypothecation for this ended epoch (numeraire only)
-            _flushRehypothecation(poolId, epoch, key.currency1);
+            _rehypothecation(poolId, epoch, key.currency0);
 
             isEpochInitialized[poolId][epoch] = false;
         }

@@ -388,10 +388,10 @@ contract PrivateLicenseHook is AbstractLicenseHook {
                     }),
                     ""
                 );
+                _handleDeltas(key, epoch);
             }
 
-            // Flush pending rehypothecation for this ended epoch (numeraire only)
-            _flushRehypothecation(poolId, epoch, key.currency1);
+            _rehypothecation(poolId, epoch, key.currency1);
 
             isEpochInitialized[poolId][epoch] = false;
         }

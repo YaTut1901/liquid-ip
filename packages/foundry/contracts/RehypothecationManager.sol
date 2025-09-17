@@ -8,27 +8,21 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import {IPool} from "@aave/core-v3/contracts/interfaces/IPool.sol";
 import {IPoolDataProvider} from "@aave/core-v3/contracts/interfaces/IPoolDataProvider.sol";
-import {IWrappedTokenGatewayV3} from "@aave/periphery-v3/contracts/misc/interfaces/IWrappedTokenGatewayV3.sol";
+import {IPool} from "@aave/core-v3/contracts/interfaces/IPool.sol";
 
 contract RehypothecationManager is IRehypothecationManager, Ownable, ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     IPool public immutable aavePool;
     IPoolDataProvider public immutable aaveDataProvider;
-    IWrappedTokenGatewayV3 public immutable wrappedTokenGateway;
+    address public immutable wrappedTokenGateway;
 
     mapping(address => bool) public authorizedHooks;
     mapping(PoolId => mapping(Currency => CampaignVault)) public campaignVaults;
 
     // Track global aToken balance to properly allocate per campaign
     mapping(Currency => uint256) public totalATokenBalance;
-
-    // implement only aave for now
-    address public immutable AAVE_POOL;
-    address public immutable AAVE_DATA_PROVIDER;
-    address public immutable WRAPPED_TOKEN_GATEWAY;
 
     modifier onlyAuthorizedHook() {
         require(authorizedHooks[msg.sender], "Unauthorized hook");
@@ -38,7 +32,7 @@ contract RehypothecationManager is IRehypothecationManager, Ownable, ReentrancyG
     constructor(address _owner, address _aavePool, address _aaveDataProvider, address _wrappedTokenGateway) Ownable(_owner) {
         aavePool = IPool(_aavePool);
         aaveDataProvider = IPoolDataProvider(_aaveDataProvider);
-        wrappedTokenGateway = IWrappedTokenGatewayV3(_wrappedTokenGateway);
+        wrappedTokenGateway = _wrappedTokenGateway;
     }
 
     function _getATokenAddress(address underlying) private view returns (address aToken) {
@@ -49,7 +43,7 @@ contract RehypothecationManager is IRehypothecationManager, Ownable, ReentrancyG
 
     function _getUnderlying(Currency currency) private pure returns (address) {
         address underlying = Currency.unwrap(currency);
-        // If native ETH, use WETH address for Aave
+        // If native ETH, use WETH address for Aave 
         if (underlying == address(0)) {
             return 0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2;
         }
@@ -103,12 +97,16 @@ contract RehypothecationManager is IRehypothecationManager, Ownable, ReentrancyG
         if (Currency.unwrap(currency) == address(0)) {
             // use WrappedTokenGateway for native ETH
             require(msg.value == amount, "ETH amount mismatch");
-            wrappedTokenGateway.depositETH{value: msg.value}(address(aavePool), address(this), 0);
+            // Call depositETH on wrapped token gateway
+            (bool success,) = wrappedTokenGateway.call{value: msg.value}(
+                abi.encodeWithSignature("depositETH(address,address,uint16)", address(aavePool), address(this), uint16(0))
+            );
+            require(success, "depositETH failed");
         } else {
             require(msg.value == 0, "ETH sent for ERC20 deposit");
             IERC20(underlying).safeTransferFrom(msg.sender, address(this), amount);
             IERC20(underlying).safeIncreaseAllowance(address(aavePool), amount);
-            aavePool.supply(underlying, amount, address(this), 0);
+            aavePool.supply(underlying, amount, address(this), uint16(0));
         }
 
         uint256 aTokenBalanceAfter = IERC20(aToken).balanceOf(address(this));
@@ -145,8 +143,11 @@ contract RehypothecationManager is IRehypothecationManager, Ownable, ReentrancyG
 
             if (Currency.unwrap(currency) == address(0)) {
                 // wrappedTokenGateway for ETH
-                IERC20(aToken).safeIncreaseAllowance(address(wrappedTokenGateway), campaignATokens);
-                wrappedTokenGateway.withdrawETH(address(aavePool), campaignATokens, msg.sender);
+                IERC20(aToken).safeIncreaseAllowance(wrappedTokenGateway, campaignATokens);
+                (bool success,) = wrappedTokenGateway.call(
+                    abi.encodeWithSignature("withdrawETH(address,uint256,address)", address(aavePool), campaignATokens, msg.sender)
+                );
+                require(success, "withdrawETH failed");
                 withdrawn = campaignATokens; 
             } else {
                 withdrawn = aavePool.withdraw(underlying, campaignATokens, msg.sender);
