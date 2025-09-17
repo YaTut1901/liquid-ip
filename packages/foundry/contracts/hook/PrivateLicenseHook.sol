@@ -407,10 +407,6 @@ contract PrivateLicenseHook is AbstractLicenseHook {
         SwapParams calldata params,
         PoolKey memory key
     ) internal {
-        if (pendingSwaps[poolId].sender != address(0)) {
-            revert OngoingMaintenance();
-        }
-
         // mint claim tokens for numeraire specified by user
         key.currency0.take(
             poolManager,
