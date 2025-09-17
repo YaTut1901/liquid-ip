@@ -111,6 +111,7 @@ Notes
 import "forge-std/Test.sol";
 import {Vm} from "forge-std/Vm.sol";
 import {PublicLicenseHook} from "../contracts/hook/PublicLicenseHook.sol";
+import {IRehypothecationManager} from "../contracts/interfaces/IRehypothecationManager.sol";
 import {AbstractLicenseHook} from "../contracts/hook/AbstractLicenseHook.sol";
 import {IPoolManager} from "@v4-core/interfaces/IPoolManager.sol";
 import {IHooks} from "@v4-core/interfaces/IHooks.sol";
@@ -134,7 +135,7 @@ contract PublicLicenseHookHarness is PublicLicenseHook {
     using PoolIdLibrary for PoolKey;
 
     constructor(IPoolManager _manager, PatentMetadataVerifier _verifier, address _owner)
-        PublicLicenseHook(_manager, _verifier, _owner)
+        PublicLicenseHook(_manager, _verifier, IRehypothecationManager(address(0)), _owner)
     {}
 
     function getIsConfigInitialized(PoolKey memory key) external view returns (bool) {
@@ -299,8 +300,8 @@ contract PublicLicenseHookTest is Test {
     function test_Init_StateInitialization_SetsMappingsAndEmits() public {
         // Compose a PoolKey with arbitrary currencies and the hook address
         PoolKey memory key = PoolKey({
-            currency0: Currency.wrap(address(0x1111)),
-            currency1: Currency.wrap(address(0x2222)),
+            currency0: Currency.wrap(address(0x1)),
+            currency1: Currency.wrap(address(new LicenseErc20Mock())),
             fee: 3000,
             tickSpacing: 60,
             hooks: IHooks(address(hook))
@@ -349,8 +350,8 @@ contract PublicLicenseHookTest is Test {
     function test_Init_BeforeInitialize_ByOwner_ConfigPresent() public {
         // Setup: initialize state for a pool
         PoolKey memory key = PoolKey({
-            currency0: Currency.wrap(address(0x1111)),
-            currency1: Currency.wrap(address(0x2222)),
+            currency0: Currency.wrap(address(0x1)),
+            currency1: Currency.wrap(address(new LicenseErc20Mock())),
             fee: 3000,
             tickSpacing: 60,
             hooks: IHooks(address(hook))
@@ -373,8 +374,8 @@ contract PublicLicenseHookTest is Test {
     function test_Swap_FirstEpoch_AllocatesPositions_UpdatesState_CallsVerifier() public {
         // Configure campaign (1 epoch, 1 position) and set time within window
         PoolKey memory key = PoolKey({
-            currency0: Currency.wrap(address(new LicenseErc20Mock())),
-            currency1: Currency.wrap(address(0x2222)),
+            currency0: Currency.wrap(address(0x1)),
+            currency1: Currency.wrap(address(new LicenseErc20Mock())),
             fee: 3000,
             tickSpacing: 60,
             hooks: IHooks(address(hook))
@@ -423,8 +424,8 @@ contract PublicLicenseHookTest is Test {
     function test_Swap_SameEpoch_SubsequentCalls_AreIdempotent() public {
         // Configure campaign (1 epoch) and enter window
         PoolKey memory key = PoolKey({
-            currency0: Currency.wrap(address(new LicenseErc20Mock())),
-            currency1: Currency.wrap(address(0x2222)),
+            currency0: Currency.wrap(address(0x1)),
+            currency1: Currency.wrap(address(new LicenseErc20Mock())),
             fee: 3000,
             tickSpacing: 60,
             hooks: IHooks(address(hook))
@@ -470,8 +471,8 @@ contract PublicLicenseHookTest is Test {
     function test_Swap_TransitionToNextEpoch_CleansOld_AppliesNew() public {
         // 2 epochs: epoch0 [-600,600], epoch1 [100,700]
         PoolKey memory key = PoolKey({
-            currency0: Currency.wrap(address(new LicenseErc20Mock())),
-            currency1: Currency.wrap(address(0x2222)),
+            currency0: Currency.wrap(address(0x1)),
+            currency1: Currency.wrap(address(new LicenseErc20Mock())),
             fee: 3000,
             tickSpacing: 60,
             hooks: IHooks(address(hook))
@@ -556,8 +557,8 @@ contract PublicLicenseHookTest is Test {
     function test_Swap_EmptyPositionsEpoch_Initialized_NoModifyCalls() public {
         // One epoch with zero positions
         PoolKey memory key = PoolKey({
-            currency0: Currency.wrap(address(new LicenseErc20Mock())),
-            currency1: Currency.wrap(address(0x2222)),
+            currency0: Currency.wrap(address(0x1)),
+            currency1: Currency.wrap(address(new LicenseErc20Mock())),
             fee: 3000,
             tickSpacing: 60,
             hooks: IHooks(address(hook))
@@ -613,8 +614,8 @@ contract PublicLicenseHookTest is Test {
     function test_Swap_AtExactStartTime_AllowsAllocation() public {
         // One epoch with one position, swap at exact start time
         PoolKey memory key = PoolKey({
-            currency0: Currency.wrap(address(new LicenseErc20Mock())),
-            currency1: Currency.wrap(address(0x2222)),
+            currency0: Currency.wrap(address(0x1)),
+            currency1: Currency.wrap(address(new LicenseErc20Mock())),
             fee: 3000,
             tickSpacing: 60,
             hooks: IHooks(address(hook))
@@ -664,7 +665,7 @@ contract PublicLicenseHookTest is Test {
     function test_Blocked_AddRemoveDonate() public {
         PoolKey memory key = PoolKey({
             currency0: Currency.wrap(address(0x1)),
-            currency1: Currency.wrap(address(0x2)),
+            currency1: Currency.wrap(address(new LicenseErc20Mock())),
             fee: 3000,
             tickSpacing: 60,
             hooks: IHooks(address(hook))
@@ -685,8 +686,8 @@ contract PublicLicenseHookTest is Test {
     // 12) Callback return values on first swap are selector, ZERO_DELTA, fee=0 (already asserted elsewhere). Here assert on initialized path too.
     function test_BeforeSwap_Returns_Zero_OnInitializedEpoch() public {
         PoolKey memory key = PoolKey({
-            currency0: Currency.wrap(address(new LicenseErc20Mock())),
-            currency1: Currency.wrap(address(0x2222)),
+            currency0: Currency.wrap(address(0x1)),
+            currency1: Currency.wrap(address(new LicenseErc20Mock())),
             fee: 3000,
             tickSpacing: 60,
             hooks: IHooks(address(hook))
@@ -710,7 +711,7 @@ contract PublicLicenseHookTest is Test {
     function test_BeforeInitialize_UnauthorizedReverts() public {
         PoolKey memory key = PoolKey({
             currency0: Currency.wrap(address(0x1)),
-            currency1: Currency.wrap(address(0x2)),
+            currency1: Currency.wrap(address(new LicenseErc20Mock())),
             fee: 3000,
             tickSpacing: 60,
             hooks: IHooks(address(hook))
@@ -727,7 +728,7 @@ contract PublicLicenseHookTest is Test {
     function test_BeforeInitialize_ConfigNotSet_Reverts() public {
         PoolKey memory key = PoolKey({
             currency0: Currency.wrap(address(0x1)),
-            currency1: Currency.wrap(address(0x2)),
+            currency1: Currency.wrap(address(new LicenseErc20Mock())),
             fee: 3000,
             tickSpacing: 60,
             hooks: IHooks(address(hook))
@@ -741,7 +742,7 @@ contract PublicLicenseHookTest is Test {
     function test_InitializeState_Twice_Reverts() public {
         PoolKey memory key = PoolKey({
             currency0: Currency.wrap(address(0x1)),
-            currency1: Currency.wrap(address(0x2)),
+            currency1: Currency.wrap(address(new LicenseErc20Mock())),
             fee: 3000,
             tickSpacing: 60,
             hooks: IHooks(address(hook))
@@ -755,8 +756,8 @@ contract PublicLicenseHookTest is Test {
     // 16) Swap direction gating
     function test_BeforeSwap_RedeemNotAllowed_WhenOneForZero() public {
         PoolKey memory key = PoolKey({
-            currency0: Currency.wrap(address(new LicenseErc20Mock())),
-            currency1: Currency.wrap(address(0x2)),
+            currency0: Currency.wrap(address(0x1)),
+            currency1: Currency.wrap(address(new LicenseErc20Mock())),
             fee: 3000,
             tickSpacing: 60,
             hooks: IHooks(address(hook))
@@ -775,8 +776,8 @@ contract PublicLicenseHookTest is Test {
     // 17) CampaignNotStarted / CampaignEnded windows
     function test_BeforeSwap_CampaignNotStarted_Reverts() public {
         PoolKey memory key = PoolKey({
-            currency0: Currency.wrap(address(new LicenseErc20Mock())),
-            currency1: Currency.wrap(address(0x2)),
+            currency0: Currency.wrap(address(0x1)),
+            currency1: Currency.wrap(address(new LicenseErc20Mock())),
             fee: 3000,
             tickSpacing: 60,
             hooks: IHooks(address(hook))
@@ -792,8 +793,8 @@ contract PublicLicenseHookTest is Test {
     function test_BeforeSwap_CampaignEnded_Reverts() public {
         // Build two epochs and jump beyond last epoch end
         PoolKey memory key = PoolKey({
-            currency0: Currency.wrap(address(new LicenseErc20Mock())),
-            currency1: Currency.wrap(address(0x2222)),
+            currency0: Currency.wrap(address(0x1)),
+            currency1: Currency.wrap(address(new LicenseErc20Mock())),
             fee: 3000,
             tickSpacing: 60,
             hooks: IHooks(address(hook))
@@ -828,8 +829,8 @@ contract PublicLicenseHookTest is Test {
     // 19) Negative delta path triggers sync+transfer+settle
     function test_HandleDeltas_NegativeDelta_Settles() public {
         PoolKey memory key = PoolKey({
-            currency0: Currency.wrap(address(new LicenseErc20Mock())),
-            currency1: Currency.wrap(address(0x2)),
+            currency0: Currency.wrap(address(0x1)),
+            currency1: Currency.wrap(address(new LicenseErc20Mock())),
             fee: 3000,
             tickSpacing: 60,
             hooks: IHooks(address(hook))
@@ -851,8 +852,8 @@ contract PublicLicenseHookTest is Test {
     // 20) Positive delta path triggers take
     function test_HandleDeltas_PositiveDelta_Takes() public {
         PoolKey memory key = PoolKey({
-            currency0: Currency.wrap(address(new LicenseErc20Mock())),
-            currency1: Currency.wrap(address(0x2)),
+            currency0: Currency.wrap(address(0x1)),
+            currency1: Currency.wrap(address(new LicenseErc20Mock())),
             fee: 3000,
             tickSpacing: 60,
             hooks: IHooks(address(hook))
@@ -873,8 +874,8 @@ contract PublicLicenseHookTest is Test {
     // 21) Event only emitted on allocation (validated in other tests); assert here with empty epoch followed by idempotent call
     function test_Event_EmittedOnlyOnAllocation() public {
         PoolKey memory key = PoolKey({
-            currency0: Currency.wrap(address(new LicenseErc20Mock())),
-            currency1: Currency.wrap(address(0x2)),
+            currency0: Currency.wrap(address(0x1)),
+            currency1: Currency.wrap(address(new LicenseErc20Mock())),
             fee: 3000,
             tickSpacing: 60,
             hooks: IHooks(address(hook))
@@ -916,8 +917,8 @@ contract PublicLicenseHookTest is Test {
     // 22) Deterministic salts used for positions
     function test_Salts_Deterministic_PerEpochAndIndex() public {
         PoolKey memory key = PoolKey({
-            currency0: Currency.wrap(address(new LicenseErc20Mock())),
-            currency1: Currency.wrap(address(0x2)),
+            currency0: Currency.wrap(address(0x1)),
+            currency1: Currency.wrap(address(new LicenseErc20Mock())),
             fee: 3000,
             tickSpacing: 60,
             hooks: IHooks(address(hook))
