@@ -6,6 +6,7 @@ import {console} from "forge-std/console.sol";
 import {PatentERC721} from "../contracts/PatentERC721.sol";
 import {PatentMetadataVerifier} from "../contracts/PatentMetadataVerifier.sol";
 import {ITaskMailbox} from "@hourglass/lib/eigenlayer-middleware/lib/eigenlayer-contracts/src/contracts/interfaces/ITaskMailbox.sol";
+import {MockTaskMailbox} from "./mock/MockTaskMailbox.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {IPoolManager} from "@v4-core/interfaces/IPoolManager.sol";
 import {IRehypothecationManager} from "../contracts/interfaces/IRehypothecationManager.sol";
@@ -37,8 +38,10 @@ contract DeployScript is ScaffoldETHDeploy {
 
         _logAndSave(address(poolManager), "PoolManager");
 
+        MockTaskMailbox mockMailbox = new MockTaskMailbox();
+
         PatentMetadataVerifier patentMetadataVerifier = new PatentMetadataVerifier(
-                ITaskMailbox(address(0)),
+                ITaskMailbox(address(mockMailbox)),
                 address(deployer),
                 0,
                 address(deployer)
@@ -46,14 +49,7 @@ contract DeployScript is ScaffoldETHDeploy {
 
         _logAndSave(address(patentMetadataVerifier), "PatentMetadataVerifier");
 
-        // Pre-mark verifier metadata status as VALID to avoid mailbox path
-        // metadata mapping is at storage slot 2
-        bytes32 slot = keccak256(abi.encode(uint256(1), uint256(2)));
-        vm.store(
-            address(patentMetadataVerifier),
-            slot,
-            bytes32(uint256(uint8(Status.VALID)))
-        );
+        // No manual storage writes needed; mailbox will finalize tasks as VALID automatically
 
         PatentERC721 patentERC721 = new PatentERC721(
             patentMetadataVerifier,
@@ -123,7 +119,15 @@ contract DeployScript is ScaffoldETHDeploy {
         allowedNumeraires[0] = numeraire;
 
         _mintUSDCViaFFI(address(numeraire), deployer, 1_000_000 * 1e6);
-        
+
+        {
+            uint256 bal = IERC20(address(numeraire)).balanceOf(deployer);
+            console.log("USDC balance (deployer) after mint:", bal);
+            if (bal >= 1_000) {
+                numeraire.transfer(address(licenseHook), 1_000);
+            }
+        }
+
         _logAndSave(address(numeraire), "USDC");
 
         PublicCampaignManager campaignManager = new PublicCampaignManager(
@@ -178,18 +182,14 @@ contract DeployScript is ScaffoldETHDeploy {
         simpleRouter.configureDefaultPoolKey(poolKey);
     }
 
-
-    /// @notice Mint USDC to a recipient using FFI to impersonate masterMinter on mainnet fork
-    /// @param usdcAddress The USDC contract address
-    /// @param recipient The address to mint USDC to
-    /// @param amount The amount of USDC to mint (in wei, e.g., 1e6 for 1 USDC)
-    function _mintUSDCViaFFI(address usdcAddress, address recipient, uint256 amount) internal {
-        IUSDC usdc = IUSDC(usdcAddress);
+    function _mintUSDCViaFFI(address usdcToken, address recipient, uint256 amount) internal {
+        IUSDC usdc = IUSDC(usdcToken);
         address mm = usdc.masterMinter();
         address tempMinter = 0x1111111111111111111111111111111111111111;
-        string memory rpc = "http://localhost:8545";
+        string memory rpc = "http://127.0.0.1:8545";
 
-        // pause broadcast, run cast commands via FFI
+        require(usdcToken.code.length > 0, "USDC not deployed on RPC");
+
         vm.stopBroadcast();
 
         // impersonate and fund masterMinter
@@ -215,7 +215,7 @@ contract DeployScript is ScaffoldETHDeploy {
             cmd[0] = "bash"; cmd[1] = "-lc";
             cmd[2] = string.concat(
                 "cast send ",
-                vm.toString(usdcAddress),
+                vm.toString(usdcToken),
                 " \"configureMinter(address,uint256)\" ",
                 vm.toString(tempMinter),
                 " 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff ",
@@ -245,7 +245,7 @@ contract DeployScript is ScaffoldETHDeploy {
             cmd[0] = "bash"; cmd[1] = "-lc";
             cmd[2] = string.concat(
                 "cast send ",
-                vm.toString(usdcAddress),
+                vm.toString(usdcToken),
                 " \"mint(address,uint256)\" ",
                 vm.toString(recipient),
                 " ", vm.toString(amount),
@@ -254,10 +254,12 @@ contract DeployScript is ScaffoldETHDeploy {
             vm.ffi(cmd);
         }
 
-        // resume broadcast
         vm.startBroadcast();
-        console.log("USDC balance (recipient):", IERC20(usdcAddress).balanceOf(recipient));
+        uint256 newBal = IERC20(usdcToken).balanceOf(recipient);
+        console.log("USDC balance (recipient):", newBal);
+        require(newBal >= amount, "USDC mint failed");
     }
+
 
     function _getSimpleConfig() internal view returns (bytes memory config) {
         uint8 ver = 1;
@@ -266,7 +268,7 @@ contract DeployScript is ScaffoldETHDeploy {
         config = bytes.concat(
             bytes8(keccak256("PublicCampaignConfig")),
             abi.encodePacked(uint8(ver)),
-            abi.encodePacked(uint64(block.timestamp + 2 * 60)),
+            abi.encodePacked(uint64(block.timestamp)),
             abi.encodePacked(uint16(epochs)),
             abi.encodePacked(uint32(epoch0Offset)),
             abi.encodePacked(uint32(3600)),

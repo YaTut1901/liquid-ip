@@ -322,7 +322,7 @@ contract PrivateLicenseHook is AbstractLicenseHook {
             tickUpper = tickLower + spacing;
         }
 
-        uint256 anchorAmount = 1e12; 
+        uint256 anchorAmount = 1e6; 
         int256 liquidityDelta = _computeLiquidity(
             tickLower,
             tickUpper,
@@ -360,7 +360,7 @@ contract PrivateLicenseHook is AbstractLicenseHook {
             key,
             SwapParams({
                 zeroForOne: !moveRight,
-                amountSpecified: -int256(1e30),
+                amountSpecified: -int256(anchorAmount),
                 sqrtPriceLimitX96: limit
             }),
             ""

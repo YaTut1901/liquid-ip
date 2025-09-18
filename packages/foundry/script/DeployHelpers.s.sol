@@ -95,7 +95,7 @@ contract ScaffoldETHDeploy is Script {
         inputs[0] = "curl";
         inputs[1] = "-X";
         inputs[2] = "POST";
-        inputs[3] = "http://localhost:8545";
+        inputs[3] = "http://127.0.0.1:8545";
         inputs[4] = "-H";
         inputs[5] = "Content-Type: application/json";
         inputs[6] = "--data";
