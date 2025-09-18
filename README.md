@@ -88,10 +88,7 @@ http://localhost:3000/debug
 
 
 <video controls width="800" muted>
-  <source src="image/Screencast from 19.09.25 00:31:37.webm" type="video/webm" />
-  <!-- Optional MP4 fallback for broader compatibility -->
-  <!-- <source src="image/demo.mp4" type="video/mp4" /> -->
-  Your browser does not support embedded videos. Use the link above.
+  <source src="image/demo.mp4" type="video/mp4" />
 </video>
 
 
