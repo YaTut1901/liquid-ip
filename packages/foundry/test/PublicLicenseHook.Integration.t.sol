@@ -33,6 +33,7 @@ import {IPoolManager} from "@v4-core/interfaces/IPoolManager.sol";
 import {Hooks} from "@v4-core/libraries/Hooks.sol";
 import {HookMiner} from "@v4-periphery/utils/HookMiner.sol";
 import {PublicLicenseHook} from "../contracts/hook/PublicLicenseHook.sol";
+import {IRehypothecationManager} from "../contracts/interfaces/IRehypothecationManager.sol";
 import {PatentMetadataVerifier} from "../contracts/PatentMetadataVerifier.sol";
 import {PatentERC721} from "../contracts/PatentERC721.sol";
 import {ITaskMailbox} from "@hourglass/lib/eigenlayer-middleware/lib/eigenlayer-contracts/src/contracts/interfaces/ITaskMailbox.sol";
@@ -134,6 +135,7 @@ contract PublicLicenseHookIntegration is Test {
         bytes memory constructorArgs = abi.encode(
             manager,
             verifier,
+            IRehypothecationManager(address(0)),
             address(this)
         );
         (address desired, bytes32 salt) = HookMiner.find(
@@ -145,6 +147,7 @@ contract PublicLicenseHookIntegration is Test {
         hook = new PublicLicenseHook{salt: salt}(
             manager,
             verifier,
+            IRehypothecationManager(address(0)),
             address(this)
         );
         console.log("setUp(): Mined & Deployed Hook at:", address(hook));

@@ -11,4 +11,6 @@
 hardhat/=lib/forge-std/src/
 
 @openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/
+@aave/core-v3/contracts/=lib/aave-v3-core/contracts/
+@aave/periphery-v3/contracts/=lib/aave-v3-periphery/contracts/
 lib/hourglass-monorepo/contracts/lib/eigenlayer-middleware/lib/eigenlayer-contracts/src/contracts/libraries:@openzeppelin/contracts/=lib/hourglass-monorepo/contracts/lib/eigenlayer-middleware/lib/eigenlayer-contracts/lib/openzeppelin-contracts-v4.9.0/contracts

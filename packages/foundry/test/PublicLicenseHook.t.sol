@@ -111,6 +111,7 @@ Notes
 import "forge-std/Test.sol";
 import {Vm} from "forge-std/Vm.sol";
 import {PublicLicenseHook} from "../contracts/hook/PublicLicenseHook.sol";
+import {IRehypothecationManager} from "../contracts/interfaces/IRehypothecationManager.sol";
 import {AbstractLicenseHook} from "../contracts/hook/AbstractLicenseHook.sol";
 import {IPoolManager} from "@v4-core/interfaces/IPoolManager.sol";
 import {IHooks} from "@v4-core/interfaces/IHooks.sol";
@@ -134,11 +135,9 @@ import {LicenseERC20} from "../contracts/token/LicenseERC20.sol";
 contract PublicLicenseHookHarness is PublicLicenseHook {
     using PoolIdLibrary for PoolKey;
 
-    constructor(
-        IPoolManager _manager,
-        PatentMetadataVerifier _verifier,
-        address _owner
-    ) PublicLicenseHook(_manager, _verifier, _owner) {}
+    constructor(IPoolManager _manager, PatentMetadataVerifier _verifier, address _owner)
+        PublicLicenseHook(_manager, _verifier, IRehypothecationManager(address(0)), _owner)
+    {}
 
     function getIsConfigInitialized(
         PoolKey memory key
@@ -878,7 +877,7 @@ contract PublicLicenseHookTest is Test {
     function test_Blocked_AddRemoveDonate() public {
         PoolKey memory key = PoolKey({
             currency0: Currency.wrap(address(0x1)),
-            currency1: Currency.wrap(address(0x2)),
+            currency1: Currency.wrap(address(new LicenseErc20Mock())),
             fee: 3000,
             tickSpacing: 60,
             hooks: IHooks(address(hook))
@@ -985,7 +984,7 @@ contract PublicLicenseHookTest is Test {
     function test_BeforeInitialize_ConfigNotSet_Reverts() public {
         PoolKey memory key = PoolKey({
             currency0: Currency.wrap(address(0x1)),
-            currency1: Currency.wrap(address(0x2)),
+            currency1: Currency.wrap(address(new LicenseErc20Mock())),
             fee: 3000,
             tickSpacing: 60,
             hooks: IHooks(address(hook))
@@ -999,7 +998,7 @@ contract PublicLicenseHookTest is Test {
     function test_InitializeState_Twice_Reverts() public {
         PoolKey memory key = PoolKey({
             currency0: Currency.wrap(address(0x1)),
-            currency1: Currency.wrap(address(0x2)),
+            currency1: Currency.wrap(address(new LicenseErc20Mock())),
             fee: 3000,
             tickSpacing: 60,
             hooks: IHooks(address(hook))

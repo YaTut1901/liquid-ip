@@ -4,6 +4,7 @@ pragma solidity ^0.8.27;
 import {AbstractLicenseHook} from "./AbstractLicenseHook.sol";
 import {IPoolManager} from "@v4-core/interfaces/IPoolManager.sol";
 import {PatentMetadataVerifier} from "../PatentMetadataVerifier.sol";
+import {IRehypothecationManager} from "../interfaces/IRehypothecationManager.sol";
 import {PoolKey} from "@v4-core/types/PoolKey.sol";
 import {PoolId} from "@v4-core/types/PoolId.sol";
 import {PublicCampaignConfig} from "../lib/PublicCampaignConfig.sol";
@@ -49,8 +50,9 @@ contract PublicLicenseHook is AbstractLicenseHook {
     constructor(
         IPoolManager _manager,
         PatentMetadataVerifier _verifier,
+        IRehypothecationManager _rehypothecationManager,
         address _owner
-    ) AbstractLicenseHook(_manager, _verifier, _owner) {}
+    ) AbstractLicenseHook(_manager, _verifier, _rehypothecationManager, _owner) {}
 
     function _initializeState(
         PoolKey memory poolKey,
@@ -96,6 +98,22 @@ contract PublicLicenseHook is AbstractLicenseHook {
         }
 
         isConfigInitialized[poolId] = true;
+
+        // initalize campaign in rehyp manager
+        if (address(rehypothecationManager) != address(0)) {
+            uint256 totalDuration = 0;
+            for (uint16 e = 0; e < epochs; e++) {
+                totalDuration += epochTiming[poolId][e].durationSeconds;
+            }
+            Currency numeraire = poolKey.currency0;
+
+            rehypothecationManager.initializeCampaign(
+                poolId,
+                numeraire,           // numeraire currency
+                owner(),             // campaign owner
+                totalDuration
+            );
+        }
     }
 
     /// @notice Checks that the sender is the LicenseHook contract otherwise reverts
@@ -166,7 +184,7 @@ contract PublicLicenseHook is AbstractLicenseHook {
         _cleanUpOldPositions(key, poolId, epochIndex);
         _adjustTick(key, poolId, epochIndex);
         _applyNewPositions(key, poolId, epochIndex);
-        _handleDeltas(key);
+        _handleDeltas(key, epochIndex);
 
         uint256 tokenId = LicenseERC20(Currency.unwrap(key.currency1))
             .patentId();
@@ -326,7 +344,10 @@ contract PublicLicenseHook is AbstractLicenseHook {
                     }),
                     ""
                 );
+                _handleDeltas(key, epoch);
             }
+
+            _rehypothecation(poolId, epoch, key.currency0);
 
             isEpochInitialized[poolId][epoch] = false;
         }

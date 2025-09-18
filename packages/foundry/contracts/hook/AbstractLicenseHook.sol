@@ -5,6 +5,7 @@ import {BaseHook} from "@v4-periphery/utils/BaseHook.sol";
 import {IPoolManager} from "@v4-core/interfaces/IPoolManager.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {PatentMetadataVerifier} from "../PatentMetadataVerifier.sol";
+import {IRehypothecationManager} from "../interfaces/IRehypothecationManager.sol";
 import {Hooks} from "@v4-core/libraries/Hooks.sol";
 import {PoolKey} from "@v4-core/types/PoolKey.sol";
 import {PoolId} from "@v4-core/types/PoolId.sol";
@@ -14,6 +15,7 @@ import {TickMath} from "@v4-core/libraries/TickMath.sol";
 import {SafeCastLib} from "@solady/utils/SafeCastLib.sol";
 import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
 import {TransientStateLibrary} from "@v4-core/libraries/TransientStateLibrary.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {LicenseERC20} from "../token/LicenseERC20.sol";
 
 abstract contract AbstractLicenseHook is BaseHook, Ownable {
@@ -34,13 +36,18 @@ abstract contract AbstractLicenseHook is BaseHook, Ownable {
     error WrongCurrencyOrder();
 
     PatentMetadataVerifier public immutable verifier;
+    IRehypothecationManager public immutable rehypothecationManager;
+
+    mapping(PoolId => mapping(uint16 epochIndex => mapping(Currency => uint256))) public pendingRehypothecations;
 
     constructor(
         IPoolManager _manager,
         PatentMetadataVerifier _verifier,
+        IRehypothecationManager _rehypothecationManager,
         address _owner
     ) BaseHook(_manager) Ownable(_owner) {
         verifier = _verifier;
+        rehypothecationManager = _rehypothecationManager;
     }
 
     function getHookPermissions()
@@ -112,12 +119,12 @@ abstract contract AbstractLicenseHook is BaseHook, Ownable {
                 .toInt256();
     }
 
-    function _handleDeltas(PoolKey memory key) internal {
-        _handleDelta(key.currency0);
-        _handleDelta(key.currency1);
+    function _handleDeltas(PoolKey memory key, uint16 epochIndex) internal {
+        _handleDelta(key, key.currency0, epochIndex); 
+        _handleDelta(key, key.currency1, epochIndex);
     }
 
-    function _handleDelta(Currency currency) internal {
+    function _handleDelta(PoolKey memory key, Currency currency, uint16 epochIndex) internal {
         int256 delta = poolManager.currencyDelta(address(this), currency);
 
         if (delta < 0) {
@@ -125,8 +132,35 @@ abstract contract AbstractLicenseHook is BaseHook, Ownable {
             currency.transfer(address(poolManager), uint256(-delta));
             poolManager.settle();
         } else if (delta > 0) {
-            // IRehypothecationManager.rehypothecate(currency, delta); - rehypothecate currency to other financial instruments
             poolManager.take(currency, address(this), uint256(delta));
+
+            if (address(rehypothecationManager) != address(0)) {
+                PoolId poolId = key.toId();
+                pendingRehypothecations[poolId][epochIndex][currency] += uint256(delta);
+            }
+        }
+    }
+
+    function _rehypothecation(
+        PoolId poolId,
+        uint16 epochIndex,
+        Currency numeraire
+    ) internal {
+        uint256 amount = pendingRehypothecations[poolId][epochIndex][numeraire];
+
+        if (amount > 0 && address(rehypothecationManager) != address(0)) {
+            pendingRehypothecations[poolId][epochIndex][numeraire] = 0;
+
+            // deposit() to RehypothecationManager
+            if (Currency.unwrap(numeraire) == address(0)) {
+                // eth, send as msg.value
+                rehypothecationManager.deposit{value: amount}(poolId, numeraire, amount);
+            } else {
+                // approve and rehypothecation will transferFrom
+                IERC20 token = IERC20(Currency.unwrap(numeraire));
+                token.approve(address(rehypothecationManager), amount);
+                rehypothecationManager.deposit(poolId, numeraire, amount);
+            }
         }
     }
 
