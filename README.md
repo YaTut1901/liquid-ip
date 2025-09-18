@@ -87,8 +87,6 @@ http://localhost:3000/debug
 - Set `amountIn` in USDC base units (6 decimals) and a conservative `amountOutMinimum`.
 
 
-[Demo video (WebM)](image/Screencast%20from%2019.09.25%2000:31:37.webm)
-
 <video controls width="800" muted>
   <source src="image/Screencast from 19.09.25 00:31:37.webm" type="video/webm" />
   <!-- Optional MP4 fallback for broader compatibility -->
@@ -169,6 +167,3 @@ Configuration
 
 ## Development notes
 - Contracts use Solidity 0.8.27. Uniswap v4 periphery components that require 0.8.26, handled via per-file pragmas and `deployCode()` cheatcode.
-- Scaffold-ETH 2 patterns are used in the frontend (RainbowKit + wagmi). Prefer `useScaffoldReadContract` and `useScaffoldWriteContract` hooks for contract I/O.
-
-[scheme: on-chain components and data flow]
