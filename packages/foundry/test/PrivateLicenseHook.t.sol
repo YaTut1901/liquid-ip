@@ -169,6 +169,7 @@ import {SwapParams, ModifyLiquidityParams} from "@v4-core/types/PoolOperation.so
 import {CoFheTest} from "../lib/cofhe-mock-contracts/contracts/CoFheTest.sol";
 import {InEuint32, InEuint128, euint32, euint128, FHE} from "@fhenixprotocol/cofhe-contracts/FHE.sol";
 import {LiquidityAmounts} from "@v4-core-test/utils/LiquidityAmounts.sol";
+import {IRehypothecationManager} from "../contracts/interfaces/IRehypothecationManager.sol";
 
 contract PatentZeroToken {
     function patentId() external pure returns (uint256) {
@@ -183,7 +184,7 @@ contract PrivateLicenseHookHarness is PrivateLicenseHook {
         IPoolManager _manager,
         PatentMetadataVerifier _verifier,
         address _owner
-    ) PrivateLicenseHook(_manager, _verifier, _owner) {}
+    ) PrivateLicenseHook(_manager, _verifier, IRehypothecationManager(address(0)), _owner) {}
 
     function getIsConfigInitialized(
         PoolKey memory key

@@ -4,6 +4,8 @@ out = 'out'
 libs = ['lib']
 fs_permissions = [{ access = "read-write", path = "./"}]
 via_ir = true
+auto_detect_solc = true
+solc = "0.8.27"
 bytecode_hash = "none"
 optimizer = true
 optimizer_runs = 1000

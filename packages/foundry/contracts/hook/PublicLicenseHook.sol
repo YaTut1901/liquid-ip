@@ -102,8 +102,8 @@ contract PublicLicenseHook is AbstractLicenseHook {
         // initalize campaign in rehyp manager
         if (address(rehypothecationManager) != address(0)) {
             uint256 totalDuration = 0;
-            for (uint16 e = 0; e < epochs; e++) {
-                totalDuration += epochTiming[poolId][e].durationSeconds;
+            for (uint16 e = 0; e < numEpochs; e++) {
+                totalDuration += epochs[poolId][e].durationSeconds;
             }
             Currency numeraire = poolKey.currency0;
 

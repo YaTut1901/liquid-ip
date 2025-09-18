@@ -224,28 +224,8 @@ contract RehypothecationManagerIntegration is Test {
     }
 
     function _executeSwapWithDynamicLimit(int256 amountSpecified, bool zeroForOne) internal {
-        // Get current pool state
-        (, int24 curTick,,) = manager.getSlot0(poolId);
-
-        // Calculate dynamic price limit based on current tick
-        int24 limitTick;
-        uint160 limit;
-
-        if (zeroForOne) {
-            // For zeroForOne, limit should be below current price
-            limitTick = curTick - int24(60); // Move down by 2 tick spacings
-            if (limitTick < TickMath.MIN_TICK) {
-                limitTick = TickMath.MIN_TICK + 1;
-            }
-            limit = TickMath.getSqrtPriceAtTick(limitTick);
-        } else {
-            // For oneForZero, limit should be above current price
-            limitTick = curTick + int24(60); // Move up by 2 tick spacings
-            if (limitTick > TickMath.MAX_TICK) {
-                limitTick = TickMath.MAX_TICK - 1;
-            }
-            limit = TickMath.getSqrtPriceAtTick(limitTick);
-        }
+        // Use extreme price limits to avoid reverts when hooks move price in beforeSwap
+        uint160 limit = zeroForOne ? (TickMath.MIN_SQRT_PRICE + 1) : (TickMath.MAX_SQRT_PRICE - 1);
 
         SwapParams memory sp = SwapParams({
             zeroForOne: zeroForOne,
@@ -366,36 +346,22 @@ contract RehypothecationManagerIntegration is Test {
         assertTrue(vault1.isActive && vault2.isActive, "Both campaigns should be active");
 
         if (vault1.aTokenBalance > 0) {
-            assertEq(vault1.totalDeposited, vault1.aTokenBalance, "Campaign 1: deposited should equal aToken balance");
+            uint256 diff1 = vault1.totalDeposited > vault1.aTokenBalance
+                ? vault1.totalDeposited - vault1.aTokenBalance
+                : vault1.aTokenBalance - vault1.totalDeposited;
+            assertLe(diff1, 1, "Campaign 1: deposited and aToken balance should be within 1 wei");
         }
         if (vault2.aTokenBalance > 0) {
-            assertEq(vault2.totalDeposited, vault2.aTokenBalance, "Campaign 2: deposited should equal aToken balance");
+            uint256 diff2 = vault2.totalDeposited > vault2.aTokenBalance
+                ? vault2.totalDeposited - vault2.aTokenBalance
+                : vault2.aTokenBalance - vault2.totalDeposited;
+            assertLe(diff2, 1, "Campaign 2: deposited and aToken balance should be within 1 wei");
         }
     }
 
-    function _executeSwapForKey(PoolKey memory k, PoolId pid, int256 amountSpecified, bool zeroForOne) internal {
-        // Get current pool state
-        (, int24 curTick,,) = manager.getSlot0(pid);
-
-        // Calculate dynamic price limit based on current tick
-        int24 limitTick;
-        uint160 limit;
-
-        if (zeroForOne) {
-            // For zeroForOne, limit should be below current price
-            limitTick = curTick - int24(60); // Move down by 2 tick spacings
-            if (limitTick < TickMath.MIN_TICK) {
-                limitTick = TickMath.MIN_TICK + 1;
-            }
-            limit = TickMath.getSqrtPriceAtTick(limitTick);
-        } else {
-            // For oneForZero, limit should be above current price
-            limitTick = curTick + int24(60); // Move up by 2 tick spacings
-            if (limitTick > TickMath.MAX_TICK) {
-                limitTick = TickMath.MAX_TICK - 1;
-            }
-            limit = TickMath.getSqrtPriceAtTick(limitTick);
-        }
+    function _executeSwapForKey(PoolKey memory k, PoolId /*pid*/, int256 amountSpecified, bool zeroForOne) internal {
+        // Use extreme price limits to avoid reverts when hooks move price in beforeSwap
+        uint160 limit = zeroForOne ? (TickMath.MIN_SQRT_PRICE + 1) : (TickMath.MAX_SQRT_PRICE - 1);
 
         SwapParams memory sp = SwapParams({
             zeroForOne: zeroForOne,

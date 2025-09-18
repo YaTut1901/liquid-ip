@@ -877,7 +877,7 @@ contract PublicLicenseHookTest is Test {
     function test_Blocked_AddRemoveDonate() public {
         PoolKey memory key = PoolKey({
             currency0: Currency.wrap(address(0x1)),
-            currency1: Currency.wrap(address(new LicenseErc20Mock())),
+            currency1: Currency.wrap(address(licenseErc20)),
             fee: 3000,
             tickSpacing: 60,
             hooks: IHooks(address(hook))
@@ -984,7 +984,7 @@ contract PublicLicenseHookTest is Test {
     function test_BeforeInitialize_ConfigNotSet_Reverts() public {
         PoolKey memory key = PoolKey({
             currency0: Currency.wrap(address(0x1)),
-            currency1: Currency.wrap(address(new LicenseErc20Mock())),
+            currency1: Currency.wrap(address(licenseErc20)),
             fee: 3000,
             tickSpacing: 60,
             hooks: IHooks(address(hook))
@@ -998,7 +998,7 @@ contract PublicLicenseHookTest is Test {
     function test_InitializeState_Twice_Reverts() public {
         PoolKey memory key = PoolKey({
             currency0: Currency.wrap(address(0x1)),
-            currency1: Currency.wrap(address(new LicenseErc20Mock())),
+            currency1: Currency.wrap(address(licenseErc20)),
             fee: 3000,
             tickSpacing: 60,
             hooks: IHooks(address(hook))
