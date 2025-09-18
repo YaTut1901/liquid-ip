@@ -1,0 +1,71 @@
+{
+    "name": "Liquid-IP License #1",
+    "description": "On-chain license to practice Patent #1 under specified terms and conditions.",
+    "image": "ipfs://bafybeigdyrlicenseassets/license.png",
+    "external_url": "https://liquid-ip.example/licenses/1",
+    "background_color": "ffffff",
+    "attributes": [
+      { "trait_type": "License Type", "value": "Non-Exclusive" },
+      { "trait_type": "Territory", "value": "Worldwide" },
+      { "trait_type": "Field of Use", "value": "Blockchain Payments" },
+      { "trait_type": "Scope", "value": "Make, Use, Sell" },
+      { "trait_type": "Royalty Rate", "value": "5% of Net Sales" },
+      { "trait_type": "Payment Token", "value": "USDC" },
+      { "trait_type": "Payment Frequency", "value": "Monthly" },
+      { "trait_type": "Sublicensing", "value": "Allowed with consent" },
+      { "trait_type": "Transferability", "value": "Non-Transferable" },
+      { "trait_type": "Effective Date", "value": "2025-09-01" },
+      { "trait_type": "Expiration Date", "value": "2028-08-31" },
+      { "trait_type": "Licensee", "value": "0x1234567890abcdef1234567890abcdef12345678" }
+    ],
+    "status": "VALID",
+    "licenseId": "LIC-0001",
+    "licensedPatent": "US-10,123,456-B2",
+    "jurisdiction": "United States",
+    "term": {
+      "startDate": "2025-09-01",
+      "endDate": "2028-08-31",
+      "renewalOptions": "1-year optional renewal at mutual consent"
+    },
+    "financials": {
+      "upfrontFeeUSD": 250000,
+      "royaltyRatePercent": 5,
+      "minAnnualUSD": 100000,
+      "reportDueDays": 15,
+      "lateFeePercent": 2
+    },
+    "usageRestrictions": [
+      "No military use",
+      "Comply with export laws",
+      "No reverse engineering beyond lawful scope"
+    ],
+    "reporting": {
+      "cadence": "Monthly",
+      "portal": "https://licensing.liquid-ip.example/portal",
+      "formatCid": "ipfs://bafybeigdyrlicenseassets/royalty_report_template.pdf"
+    },
+    "documents": {
+      "licenseAgreementCid": "ipfs://bafybeigdyrlicenseassets/license_agreement.pdf",
+      "amendments": [
+        {
+          "date": "2026-03-15",
+          "cid": "ipfs://bafybeigdyrlicenseassets/amendment_1.pdf"
+        }
+      ]
+    },
+    "rights": "Limited, revocable license to practice the claimed invention within the specified territory and field.",
+    "provenance": {
+      "version": 1,
+      "previousTokenUri": null,
+      "updatedAt": "2025-09-18T12:34:56Z",
+      "updatedBy": "0x1234567890abcdef1234567890abcdef12345678"
+    },
+    "dataIntegrity": {
+      "contentHashSha256": "0x7b5a9b4b1e2a8f9c6d3e2c1a9f8b7e6d5c4b3a2f1e0d9c8b7a6f5e4d3c2b1a0",
+      "schemaVersion": "1.0.0"
+    },
+    "links": {
+      "dapp": "https://liquid-ip.example/licenses/1",
+      "repository": "https://github.com/liquid-ip/example-repo"
+    }
+}

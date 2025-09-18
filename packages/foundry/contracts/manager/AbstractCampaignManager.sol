@@ -64,8 +64,12 @@ abstract contract AbstractCampaignManager is ICampaignManager, Ownable {
 
     /// @inheritdoc ICampaignManager
     function retrieve(uint256 patentId) external {
+        require(delegatedPatents[patentId] != address(0), PatentNotDelegated());
         require(
-            block.timestamp > campaignEndTimestamp[patentId],
+            (campaignEndTimestamp[patentId] == 0 &&
+                msg.sender == delegatedPatents[patentId]) ||
+                (campaignEndTimestamp[patentId] != 0 &&
+                    block.timestamp > campaignEndTimestamp[patentId]),
             CampaignOngoing()
         );
         address patentOwner = delegatedPatents[patentId];

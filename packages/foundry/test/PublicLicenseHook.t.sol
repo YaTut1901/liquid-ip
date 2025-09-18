@@ -339,14 +339,12 @@ contract PublicLicenseHookTest is Test {
             PatentMetadataVerifier(address(verifier)),
             address(this)
         );
-        (address desired, bytes32 salt) = HookMiner.find(
+        (, bytes32 salt) = HookMiner.find(
             address(this),
             flags,
             creationCode,
             constructorArgs
         );
-        // silence unused variable warning for desired address
-        desired = desired;
         hook = new PublicLicenseHookHarness{salt: salt}(
             manager,
             verifier,

@@ -1,295 +1,315 @@
-// //SPDX-License-Identifier: MIT
-// pragma solidity ^0.8.27;
+//SPDX-License-Identifier: MIT
+pragma solidity ^0.8.27;
 
-// import "./DeployHelpers.s.sol";
-// import {console} from "forge-std/console.sol";
-// import {PatentERC721} from "../contracts/PatentERC721.sol";
-// import {PatentMetadataVerifier} from "../contracts/PatentMetadataVerifier.sol";
-// import {ITaskMailbox, ITaskMailboxTypes} from "@hourglass/lib/eigenlayer-middleware/lib/eigenlayer-contracts/src/contracts/interfaces/ITaskMailbox.sol";
-// import {IAVSTaskHook} from "@hourglass/lib/eigenlayer-middleware/lib/eigenlayer-contracts/src/contracts/interfaces/IAVSTaskHook.sol";
-// import {IKeyRegistrarTypes} from "@hourglass/lib/eigenlayer-middleware/lib/eigenlayer-contracts/src/contracts/interfaces/IKeyRegistrar.sol";
-// import {IKeyRegistrar} from "@hourglass/lib/eigenlayer-middleware/lib/eigenlayer-contracts/src/contracts/interfaces/IKeyRegistrar.sol";
-// import {IOperatorTableUpdater} from "@hourglass/lib/eigenlayer-middleware/lib/eigenlayer-contracts/src/contracts/interfaces/IOperatorTableUpdater.sol";
-// import {OperatorSet} from "@hourglass/lib/eigenlayer-middleware/lib/eigenlayer-contracts/src/contracts/libraries/OperatorSetLib.sol";
-// import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-// import {BN254CertificateVerifier} from "@hourglass/lib/eigenlayer-middleware/lib/eigenlayer-contracts/src/contracts/multichain/BN254CertificateVerifier.sol";
-// import {TaskMailbox} from "@hourglass/lib/eigenlayer-middleware/lib/eigenlayer-contracts/src/contracts/avs/task/TaskMailbox.sol";
-// import {KeyRegistrar} from "@hourglass/lib/eigenlayer-middleware/lib/eigenlayer-contracts/src/contracts/permissions/KeyRegistrar.sol";
-// import {IPermissionController} from "@hourglass/lib/eigenlayer-middleware/lib/eigenlayer-contracts/src/contracts/interfaces/IPermissionController.sol";
-// import {IAllocationManager} from "@hourglass/lib/eigenlayer-middleware/lib/eigenlayer-contracts/src/contracts/interfaces/IAllocationManager.sol";
-// import {TransparentUpgradeableProxy} from "@openzeppelin/contracts/proxy/transparent/TransparentUpgradeableProxy.sol";
-// import {ProxyAdmin} from "@openzeppelin/contracts/proxy/transparent/ProxyAdmin.sol";
-// import {IOperatorTableCalculatorTypes} from "@hourglass/lib/eigenlayer-middleware/lib/eigenlayer-contracts/src/contracts/interfaces/IOperatorTableCalculator.sol";
-// import {ICrossChainRegistryTypes} from "@hourglass/lib/eigenlayer-middleware/lib/eigenlayer-contracts/src/contracts/interfaces/ICrossChainRegistry.sol";
-// import {BN254} from "@hourglass/lib/eigenlayer-middleware/lib/eigenlayer-contracts/src/contracts/libraries/BN254.sol";
-// import {CampaignManager} from "../contracts/CampaignManager.sol";
-// import {LicenseHook} from "../contracts/LicenseHook.sol";
-// import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
-// import {IPoolManager} from "@v4-core/interfaces/IPoolManager.sol";
-// import {IEpochLiquidityAllocationManager} from "../contracts/interfaces/IEpochLiquidityAllocationManager.sol";
-// import {IRehypothecationManager} from "../contracts/interfaces/IRehypothecationManager.sol";
-// import {RehypothecationManager} from "../contracts/RehypothecationManager.sol";
-// import {Hooks} from "@v4-core/libraries/Hooks.sol";
-// import {HookMiner} from "@v4-periphery/utils/HookMiner.sol";
-// import {MockERC20} from "./MockERC.sol";
+import "./DeployHelpers.s.sol";
+import {console} from "forge-std/console.sol";
+import {PatentERC721} from "../contracts/PatentERC721.sol";
+import {PatentMetadataVerifier} from "../contracts/PatentMetadataVerifier.sol";
+import {ITaskMailbox} from "@hourglass/lib/eigenlayer-middleware/lib/eigenlayer-contracts/src/contracts/interfaces/ITaskMailbox.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {IPoolManager} from "@v4-core/interfaces/IPoolManager.sol";
+import {IRehypothecationManager} from "../contracts/interfaces/IRehypothecationManager.sol";
+import {RehypothecationManager} from "../contracts/RehypothecationManager.sol";
+import {Hooks} from "@v4-core/libraries/Hooks.sol";
+import {HookMiner} from "@v4-periphery/utils/HookMiner.sol";
+import {PublicLicenseHook} from "../contracts/hook/PublicLicenseHook.sol";
+import {Status} from "../contracts/PatentMetadataVerifier.sol";
+import {PublicCampaignManager} from "../contracts/manager/PublicCampaignManager.sol";
+import {LicenseERC20} from "../contracts/token/LicenseERC20.sol";
+import {Create2} from "@openzeppelin/contracts/utils/Create2.sol";
+import {ISimpleV4Router} from "../contracts/router/ISimpleV4Router.sol";
+import {PoolKey} from "@v4-core/types/PoolKey.sol";
+import {Currency} from "@v4-core/types/Currency.sol";
+import {IHooks} from "@v4-core/interfaces/IHooks.sol";
 
-// contract DeployScript is ScaffoldETHDeploy {
-//     function run(address poolManager) external ScaffoldEthDeployerRunner {
-//         (
-//             ITaskMailbox mailbox,
-//             address operatorSetOwner,
-//             uint32 operatorSetId
-//         ) = _deployHourglass();
+interface IUSDC {
+    function masterMinter() external view returns (address);
+    function configureMinter(address minter, uint256 minterAllowedAmount) external returns (bool);
+    function mint(address to, uint256 amount) external returns (bool);
+}
 
-//         _deployCustom(
-//             IPoolManager(poolManager),
-//             mailbox,
-//             operatorSetOwner,
-//             operatorSetId
-//         );
-//     }
+contract DeployScript is ScaffoldETHDeploy {
+    function run() external ScaffoldEthDeployerRunner {
+        // mainnet PoolManager
+        IPoolManager poolManager = IPoolManager(
+            0x000000000004444c5dc75cB358380D2e3dE08A90
+        );
 
-//     function _deployHourglass()
-//         internal
-//         returns (
-//             ITaskMailbox mailbox,
-//             address operatorSetOwner,
-//             uint32 operatorSetId
-//         )
-//     {
-//         // --- Deploy Hourglass singletons locally ---
-//         BN254CertificateVerifier bn254 = new BN254CertificateVerifier(
-//             IOperatorTableUpdater(deployer),
-//             "local"
-//         );
-//         console.log("BN254CertificateVerifier:", address(bn254));
-//         deployments.push(
-//             Deployment({name: "BN254CertificateVerifier", addr: address(bn254)})
-//         );
+        _logAndSave(address(poolManager), "PoolManager");
 
-//         // Deploy a separate proxy admin to avoid admin-call fallback reverts
-//         ProxyAdmin proxyAdmin = new ProxyAdmin(deployer);
-//         console.log("ProxyAdmin:", address(proxyAdmin));
-//         deployments.push(
-//             Deployment({name: "ProxyAdmin", addr: address(proxyAdmin)})
-//         );
+        PatentMetadataVerifier patentMetadataVerifier = new PatentMetadataVerifier(
+                ITaskMailbox(address(0)),
+                address(deployer),
+                0,
+                address(deployer)
+            );
 
-//         uint96 maxTaskSLA = 7 days / 2;
-//         TaskMailbox mailboxImpl = new TaskMailbox(
-//             address(bn254),
-//             address(0),
-//             maxTaskSLA,
-//             "local"
-//         );
-//         bytes memory initData = abi.encodeWithSelector(
-//             TaskMailbox.initialize.selector,
-//             deployer,
-//             uint16(0),
-//             deployer
-//         );
-//         TransparentUpgradeableProxy mailboxProxy = new TransparentUpgradeableProxy(
-//                 address(mailboxImpl),
-//                 address(proxyAdmin),
-//                 initData
-//             );
-//         mailbox = ITaskMailbox(address(mailboxProxy));
-//         console.log("TaskMailbox:", address(mailbox));
-//         deployments.push(
-//             Deployment({name: "TaskMailbox", addr: address(mailbox)})
-//         );
+        _logAndSave(address(patentMetadataVerifier), "PatentMetadataVerifier");
 
-//         KeyRegistrar keyReg = new KeyRegistrar(
-//             IPermissionController(address(0)),
-//             IAllocationManager(address(0)),
-//             "local"
-//         );
-//         console.log("KeyRegistrar:", address(keyReg));
-//         deployments.push(
-//             Deployment({name: "KeyRegistrar", addr: address(keyReg)})
-//         );
+        // Pre-mark verifier metadata status as VALID to avoid mailbox path
+        // metadata mapping is at storage slot 2
+        bytes32 slot = keccak256(abi.encode(uint256(1), uint256(2)));
+        vm.store(
+            address(patentMetadataVerifier),
+            slot,
+            bytes32(uint256(uint8(Status.VALID)))
+        );
 
-//         // --- Seed operator set owner in BN254CertificateVerifier so Mailbox owner checks pass ---
-//         operatorSetOwner = deployer;
-//         operatorSetId = 1;
-//         OperatorSet memory setKey = OperatorSet(
-//             operatorSetOwner,
-//             operatorSetId
-//         );
-//         IOperatorTableCalculatorTypes.BN254OperatorSetInfo
-//             memory emptyInfo = IOperatorTableCalculatorTypes
-//                 .BN254OperatorSetInfo({
-//                     operatorInfoTreeRoot: bytes32(0),
-//                     numOperators: 0,
-//                     aggregatePubkey: BN254.G1Point({X: 0, Y: 0}),
-//                     totalWeights: new uint256[](0)
-//                 });
-//         ICrossChainRegistryTypes.OperatorSetConfig
-//             memory cfgSeed = ICrossChainRegistryTypes.OperatorSetConfig({
-//                 owner: operatorSetOwner,
-//                 maxStalenessPeriod: 0
-//             });
-//         bn254.updateOperatorTable(
-//             setKey,
-//             uint32(block.timestamp),
-//             emptyInfo,
-//             cfgSeed
-//         );
-//         console.log("Seeded operator set owner in BN254CertificateVerifier");
-//     }
+        PatentERC721 patentERC721 = new PatentERC721(
+            patentMetadataVerifier,
+            deployer
+        );
+        patentMetadataVerifier.setPatentErc721(patentERC721);
 
-//     function _deployCustom(
-//         IPoolManager poolManager,
-//         ITaskMailbox mailbox,
-//         address operatorSetOwner,
-//         uint32 operatorSetId
-//     ) internal {
-//         // --- Deploy your AVS contracts ---
-//         PatentMetadataVerifier verifier = new PatentMetadataVerifier(
-//             ITaskMailbox(address(mailbox)),
-//             operatorSetOwner,
-//             operatorSetId,
-//             deployer
-//         );
-//         console.log("PatentMetadataVerifier:", address(verifier));
-//         deployments.push(
-//             Deployment({
-//                 name: "PatentMetadataVerifier",
-//                 addr: address(verifier)
-//             })
-//         );
+        _logAndSave(address(patentERC721), "PatentERC721");
 
-//         PatentERC721 patentERC721 = new PatentERC721(
-//             verifier,
-//             address(verifier)
-//         );
-//         console.log("PatentERC721:", address(patentERC721));
-//         deployments.push(
-//             Deployment({name: "PatentERC721", addr: address(patentERC721)})
-//         );
+        // ipfs hash of the json file already deployed on ipfs
+        // mint to address with index 0 from anvil generated addresses
+        patentERC721.mint(
+            deployer,
+            "ipfs://bafkreigpjxayyoyap4ja5vcf7wsoly75iszt3siqxjjpltjysyqnpxsz7e"
+        );
 
-//         verifier.setPatentErc721(patentERC721);
+        // mint patent nft with deployer as owner and transfer ownership to patentMetadataVerifier as it should be in real setup
+        patentERC721.transferOwnership(address(patentMetadataVerifier));
 
-//         ITaskMailboxTypes.ExecutorOperatorSetTaskConfig
-//             memory cfg = ITaskMailboxTypes.ExecutorOperatorSetTaskConfig({
-//                 taskHook: IAVSTaskHook(address(verifier)),
-//                 taskSLA: 120,
-//                 feeToken: IERC20(address(0)),
-//                 curveType: IKeyRegistrarTypes.CurveType.BN254,
-//                 feeCollector: address(0),
-//                 consensus: ITaskMailboxTypes.Consensus({
-//                     consensusType: ITaskMailboxTypes.ConsensusType.NONE,
-//                     value: bytes("")
-//                 }),
-//                 taskMetadata: bytes("")
-//             });
-//         OperatorSet memory setKey = OperatorSet(
-//             operatorSetOwner,
-//             operatorSetId
-//         );
-//         mailbox.setExecutorOperatorSetTaskConfig(setKey, cfg);
-//         mailbox.registerExecutorOperatorSet(setKey, true);
-//         console.log("TaskMailbox configured. Hook:", address(cfg.taskHook));
+        // Mainnet Aave V3 addresses
+        address AAVE_POOL = 0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2;
+        address AAVE_DATA_PROVIDER = 0x7B4EB56E7CD4b454BA8ff71E4518426369a138a3;
+        address WRAPPED_TOKEN_GATEWAY = 0xD322A49006FC828F9B5B37Ab215F99B4E5caB19C;
 
-//         // Deploy RehypothecationManager FIRST
-//         // Mainnet Aave V3 addresses
-//         address AAVE_POOL = 0x87870Bca3F3fD6335C3F4ce8392D69350B4fA4E2;
-//         address AAVE_DATA_PROVIDER = 0x7B4EB56E7CD4b454BA8ff71E4518426369a138a3;
-//         address WRAPPED_TOKEN_GATEWAY = 0xD322A49006FC828F9B5B37Ab215F99B4E5caB19C;
-//
-//         // For Sepolia deployment, use these addresses instead:
-//         // address AAVE_POOL = 0x6Ae43d3271ff6888e7Fc43Fd7321a503ff738951;
-//         // address AAVE_DATA_PROVIDER = 0x69529987FA4A075D0C00B0128fa848dc9ebbE9CE;
-//         // address WRAPPED_TOKEN_GATEWAY = 0x387d311e47e80b498169e6fb51d3193167d89F7D;
-//
-//         RehypothecationManager rehypothecationManager = new RehypothecationManager(
-//             deployer,
-//             AAVE_POOL,
-//             AAVE_DATA_PROVIDER,
-//             WRAPPED_TOKEN_GATEWAY
-//         );
-//         console.log("RehypothecationManager:", address(rehypothecationManager));
-//         deployments.push(
-//             Deployment({
-//                 name: "RehypothecationManager",
-//                 addr: address(rehypothecationManager)
-//             })
-//         );
-//
-//         // Deploy LicenseHook (owner: deployer for now) using HookMiner
-//         bytes memory creationCode = type(LicenseHook).creationCode;
-//         uint160 flags = uint160(
-//             Hooks.BEFORE_INITIALIZE_FLAG |
-//                 Hooks.BEFORE_ADD_LIQUIDITY_FLAG |
-//                 Hooks.BEFORE_REMOVE_LIQUIDITY_FLAG |
-//                 Hooks.BEFORE_SWAP_FLAG |
-//                 Hooks.BEFORE_DONATE_FLAG
-//         );
-//         bytes memory constructorArgs = abi.encode(
-//             IPoolManager(address(poolManager)),
-//             verifier,
-//             rehypothecationManager,
-//             deployer
-//         );
-//         (address licenseHookAddress, bytes32 salt) = HookMiner.find(
-//             0x4e59b44847b379578588920cA78FbF26c0B4956C,
-//             flags,
-//             creationCode,
-//             constructorArgs
-//         );
-//         LicenseHook licenseHook = new LicenseHook{salt: salt}(
-//             poolManager,
-//             verifier,
-//             rehypothecationManager,
-//             deployer
-//         );
-//         console.log("LicenseHook:", address(licenseHook));
-//         deployments.push(
-//             Deployment({name: "LicenseHook", addr: address(licenseHook)})
-//         );
-//
-//         // Authorize the LicenseHook to interact with RehypothecationManager
-//         rehypothecationManager.authorizeHook(address(licenseHook));
-//         console.log("LicenseHook authorized in RehypothecationManager");
+        RehypothecationManager rehypothecationManager = new RehypothecationManager(
+                deployer,
+                AAVE_POOL,
+                AAVE_DATA_PROVIDER,
+                WRAPPED_TOKEN_GATEWAY
+            );
+        _logAndSave(address(rehypothecationManager), "RehypothecationManager");
 
-//         IERC20[] memory allowedNumeraires = new IERC20[](1);
-//         IERC20 numeraire = new MockERC20("Numeraire", "NUM");
-//         allowedNumeraires[0] = numeraire;
-//         deployments.push(
-//             Deployment({name: "Numeraire", addr: address(numeraire)})
-//         );
+        // Deploy LicenseHook (owner: deployer for now) using HookMiner
+        bytes memory creationCode = type(PublicLicenseHook).creationCode;
+        uint160 flags = uint160(
+            Hooks.BEFORE_INITIALIZE_FLAG |
+                Hooks.BEFORE_ADD_LIQUIDITY_FLAG |
+                Hooks.BEFORE_REMOVE_LIQUIDITY_FLAG |
+                Hooks.BEFORE_SWAP_FLAG |
+                Hooks.BEFORE_DONATE_FLAG
+        );
+        bytes memory constructorArgs = abi.encode(
+            poolManager,
+            patentMetadataVerifier,
+            rehypothecationManager,
+            deployer
+        );
+        (, bytes32 salt) = HookMiner.find(
+            0x4e59b44847b379578588920cA78FbF26c0B4956C,
+            flags,
+            creationCode,
+            constructorArgs
+        );
+        PublicLicenseHook licenseHook = new PublicLicenseHook{salt: salt}(
+            poolManager,
+            patentMetadataVerifier,
+            rehypothecationManager,
+            deployer
+        );
+        _logAndSave(address(licenseHook), "PublicLicenseHook");
 
-//         IEpochLiquidityAllocationManager[]
-//             memory allowedEpochManagers = new IEpochLiquidityAllocationManager[](
-//                 1
-//             );
-//         allowedEpochManagers[0] = IEpochLiquidityAllocationManager(address(0));
+        rehypothecationManager.authorizeHook(address(licenseHook));
 
-//         // RehypothecationManager already deployed above
-//
-//         IRehypothecationManager[]
-//             memory allowedRehypManagers = new IRehypothecationManager[](1);
-//         allowedRehypManagers[0] = rehypothecationManager;
+        IERC20[] memory allowedNumeraires = new IERC20[](1);
+        // USDC token address on mainnet
+        IERC20 numeraire = IERC20(0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48);
+        allowedNumeraires[0] = numeraire;
 
-//         CampaignManager campaignManager = new CampaignManager(
-//             deployer,
-//             poolManager,
-//             patentERC721,
-//             allowedNumeraires,
-//             licenseHook
-//         );
-//         console.log("CampaignManager:", address(campaignManager));
-//         deployments.push(
-//             Deployment({
-//                 name: "CampaignManager",
-//                 addr: address(campaignManager)
-//             })
-//         );
+        _mintUSDCViaFFI(address(numeraire), deployer, 1_000_000 * 1e6);
+        
+        _logAndSave(address(numeraire), "USDC");
 
-//         // Transfer LicenseHook ownership to CampaignManager so it can initialize pools
-//         licenseHook.transferOwnership(address(campaignManager));
-//         console.log(
-//             "LicenseHook ownership transferred to:",
-//             address(campaignManager)
-//         );
-//     }
-// }
+        PublicCampaignManager campaignManager = new PublicCampaignManager(
+            deployer,
+            poolManager,
+            patentERC721,
+            allowedNumeraires,
+            licenseHook
+        );
+        _logAndSave(address(campaignManager), "CampaignManager");
+
+        licenseHook.transferOwnership(address(campaignManager));
+
+        patentERC721.safeTransferFrom(deployer, address(campaignManager), 1);
+
+        ISimpleV4Router simpleRouter = ISimpleV4Router(
+            deployCode(
+                "SimpleV4Router.sol:SimpleV4Router",
+                abi.encode(poolManager)
+            )
+        );
+        _logAndSave(address(simpleRouter), "SimpleV4Router");
+
+        string
+            memory metadataUri = "ipfs://bafkreig5fcmv6xo4if6gr36l26pfo5mcv6tmes5czu4gv7ed4t7y5o4waq";
+        (bytes32 licenseSalt, address asset) = _mineSalt(
+            patentERC721,
+            1,
+            metadataUri,
+            numeraire,
+            address(campaignManager)
+        );
+        _logAndSave(address(asset), "LicenseERC20");
+
+        // init campaign with metadata already stored on ipfs
+        campaignManager.initialize(
+            1,
+            metadataUri,
+            licenseSalt,
+            numeraire,
+            _getSimpleConfig()
+        );
+
+        // configure SimpleV4Router default pool key for easy swaps
+        PoolKey memory poolKey = PoolKey({
+            currency0: Currency.wrap(address(numeraire)),
+            currency1: Currency.wrap(asset),
+            hooks: IHooks(address(licenseHook)),
+            fee: 0,
+            tickSpacing: campaignManager.TICK_SPACING()
+        });
+        simpleRouter.configureDefaultPoolKey(poolKey);
+    }
+
+
+    /// @notice Mint USDC to a recipient using FFI to impersonate masterMinter on mainnet fork
+    /// @param usdcAddress The USDC contract address
+    /// @param recipient The address to mint USDC to
+    /// @param amount The amount of USDC to mint (in wei, e.g., 1e6 for 1 USDC)
+    function _mintUSDCViaFFI(address usdcAddress, address recipient, uint256 amount) internal {
+        IUSDC usdc = IUSDC(usdcAddress);
+        address mm = usdc.masterMinter();
+        address tempMinter = 0x1111111111111111111111111111111111111111;
+        string memory rpc = "http://localhost:8545";
+
+        // pause broadcast, run cast commands via FFI
+        vm.stopBroadcast();
+
+        // impersonate and fund masterMinter
+        {
+            string[] memory cmd = new string[](3);
+            cmd[0] = "bash"; cmd[1] = "-lc";
+            cmd[2] = string.concat(
+                "cast rpc anvil_impersonateAccount ", vm.toString(mm), " --rpc-url ", rpc
+            );
+            vm.ffi(cmd);
+        }
+        {
+            string[] memory cmd = new string[](3);
+            cmd[0] = "bash"; cmd[1] = "-lc";
+            cmd[2] = string.concat(
+                "cast rpc anvil_setBalance ", vm.toString(mm), " 0xDE0B6B3A7640000 --rpc-url ", rpc
+            );
+            vm.ffi(cmd);
+        }
+        // configure tempMinter as minter from masterMinter
+        {
+            string[] memory cmd = new string[](3);
+            cmd[0] = "bash"; cmd[1] = "-lc";
+            cmd[2] = string.concat(
+                "cast send ",
+                vm.toString(usdcAddress),
+                " \"configureMinter(address,uint256)\" ",
+                vm.toString(tempMinter),
+                " 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff ",
+                "--from ", vm.toString(mm), " --unlocked --rpc-url ", rpc
+            );
+            vm.ffi(cmd);
+        }
+        // impersonate and fund tempMinter, then mint to recipient
+        {
+            string[] memory cmd = new string[](3);
+            cmd[0] = "bash"; cmd[1] = "-lc";
+            cmd[2] = string.concat(
+                "cast rpc anvil_impersonateAccount ", vm.toString(tempMinter), " --rpc-url ", rpc
+            );
+            vm.ffi(cmd);
+        }
+        {
+            string[] memory cmd = new string[](3);
+            cmd[0] = "bash"; cmd[1] = "-lc";
+            cmd[2] = string.concat(
+                "cast rpc anvil_setBalance ", vm.toString(tempMinter), " 0xDE0B6B3A7640000 --rpc-url ", rpc
+            );
+            vm.ffi(cmd);
+        }
+        {
+            string[] memory cmd = new string[](3);
+            cmd[0] = "bash"; cmd[1] = "-lc";
+            cmd[2] = string.concat(
+                "cast send ",
+                vm.toString(usdcAddress),
+                " \"mint(address,uint256)\" ",
+                vm.toString(recipient),
+                " ", vm.toString(amount),
+                " --from ", vm.toString(tempMinter), " --unlocked --rpc-url ", rpc
+            );
+            vm.ffi(cmd);
+        }
+
+        // resume broadcast
+        vm.startBroadcast();
+        console.log("USDC balance (recipient):", IERC20(usdcAddress).balanceOf(recipient));
+    }
+
+    function _getSimpleConfig() internal view returns (bytes memory config) {
+        uint8 ver = 1;
+        uint16 epochs = 1;
+        uint32 epoch0Offset = 19 + 4 * uint32(epochs);
+        config = bytes.concat(
+            bytes8(keccak256("PublicCampaignConfig")),
+            abi.encodePacked(uint8(ver)),
+            abi.encodePacked(uint64(block.timestamp + 2 * 60)),
+            abi.encodePacked(uint16(epochs)),
+            abi.encodePacked(uint32(epoch0Offset)),
+            abi.encodePacked(uint32(3600)),
+            abi.encodePacked(uint8(uint8(1))),
+            abi.encodePacked(int24(-600)),
+            abi.encodePacked(int24(600)),
+            abi.encodePacked(uint128(10 * 1e6))
+        );
+    }
+
+    function _mineSalt(
+        PatentERC721 patentErc721,
+        uint256 patentId,
+        string memory assetMetadataUri,
+        IERC20 numeraire,
+        address deployerAddress
+    ) internal view returns (bytes32, address) {
+        bytes32 licenseSalt;
+        uint256 count = 0;
+        while (true) {
+            licenseSalt = keccak256(abi.encodePacked(count));
+            bytes32 bytecodeHash = keccak256(
+                abi.encodePacked(
+                    type(LicenseERC20).creationCode,
+                    abi.encode(patentErc721, patentId, assetMetadataUri)
+                )
+            );
+            address asset = Create2.computeAddress(
+                licenseSalt,
+                bytecodeHash,
+                deployerAddress
+            );
+            if (asset > address(numeraire)) {
+                return (licenseSalt, asset);
+            }
+            unchecked {
+                ++count;
+            }
+        }
+    }
+
+    function _logAndSave(address addr, string memory name) internal {
+        console.log(name, ":", addr);
+        deployments.push(Deployment({name: name, addr: addr}));
+    }
+}

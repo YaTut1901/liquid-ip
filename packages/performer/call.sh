@@ -5,7 +5,7 @@ set -euo pipefail
 # taskId encoded as arbitrary bytes ("task-1")
 TASK_B64=$(printf 'task-1' | base64 -w0)
 # Encode pure arguments without selector using constructor encoding
-PAYLOAD_HEX=$(cast abi-encode "constructor(uint256,string)" 1 "ipfs://bafkreihlhqp6eltren2u7mwb2dh4iyjg3z7yw7vvwvjmvduvwgzehe5nqa")
+PAYLOAD_HEX=$(cast abi-encode "constructor(uint256,string)" 1 "ipfs://bafkreigpjxayyoyap4ja5vcf7wsoly75iszt3siqxjjpltjysyqnpxsz7e")
 PAYLOAD_B64=$(xxd -r -p <<< "${PAYLOAD_HEX#0x}" | base64 -w0)
 
 # Call the performer

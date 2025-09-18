@@ -68,8 +68,8 @@ function getDeploymentHistory(broadcastPath) {
     const transactions = parseTransactionRun(join(broadcastPath, file));
 
     for (const tx of transactions) {
-      if (tx.transactionType === "CREATE") {
-        // Store or update contract deployment info
+      if (tx.transactionType === "CREATE" || tx.transactionType === "CREATE2") {
+        // Store or update contract deployment info (supports CREATE and CREATE2)
         deploymentHistory.set(tx.contractAddress, {
           contractName: tx.contractName,
           address: tx.contractAddress,
@@ -223,6 +223,27 @@ function main() {
         // If we have a deployment name, use it instead of the contract name
         allGeneratedContracts[chainId][deployedName] = contractData;
         delete allGeneratedContracts[chainId][contractName];
+      }
+    });
+  });
+
+  // Add any deployments that were logged but not present in broadcast (e.g. CREATE2 done inside a tx)
+  Object.entries(deployments).forEach(([chainId, addressToName]) => {
+    if (!allGeneratedContracts[chainId]) {
+      allGeneratedContracts[chainId] = {};
+    }
+    Object.entries(addressToName).forEach(([address, name]) => {
+      if (!allGeneratedContracts[chainId][name]) {
+        const artifact = getArtifactOfContract(name);
+        if (artifact) {
+          allGeneratedContracts[chainId][name] = {
+            address,
+            abi: artifact.abi,
+            inheritedFunctions: getInheritedFunctions(artifact),
+            deploymentFile: "external",
+            deploymentScript: "Deploy.s.sol",
+          };
+        }
       }
     });
   });

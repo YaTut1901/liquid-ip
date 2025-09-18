@@ -1,0 +1,66 @@
+{
+    "name": "Liquid-IP Patent #1",
+    "description": "Granted patent covering methods for decentralized IP licensing and on-chain royalty accounting.",
+    "image": "ipfs://bafybeigdyrpatentassets/image.png",
+    "external_url": "https://liquid-ip.example/patents/1",
+    "background_color": "ffffff",
+    "attributes": [
+      { "trait_type": "Jurisdiction", "value": "US" },
+      { "trait_type": "Patent Status", "value": "Granted" },
+      { "trait_type": "Technology", "value": "Blockchain" },
+      { "trait_type": "Field", "value": "Intellectual Property" },
+      { "trait_type": "Family Size", "value": 3 }
+    ],
+    "status": "VALID",
+    "patentNumber": "US-10,123,456-B2",
+    "applicationNumber": "US 15/987,654",
+    "jurisdiction": "United States",
+    "filingDate": "2019-06-14",
+    "grantDate": "2021-03-02",
+    "priorityDate": "2018-12-01",
+    "assignee": "Liquid IP Labs, Inc.",
+    "inventors": [
+      "Alice Example",
+      "Bob Example"
+    ],
+    "citations": [
+      "US-9,876,543-B1",
+      "WO-2018/012345"
+    ],
+    "claims": [
+      "A method for managing IP licenses via distributed ledgers...",
+      "The method of claim 1 wherein royalty splits are computed on-chain..."
+    ],
+    "documents": {
+      "specificationCid": "ipfs://bafybeigdyrpatentassets/spec.pdf",
+      "drawingsCid": "ipfs://bafybeigdyrpatentassets/drawings.pdf",
+      "officeActions": [
+        {
+          "date": "2020-02-11",
+          "type": "Non-Final Rejection",
+          "cid": "ipfs://bafybeigdyrpatentassets/ofac1.pdf"
+        },
+        {
+          "date": "2020-09-30",
+          "type": "Notice of Allowance",
+          "cid": "ipfs://bafybeigdyrpatentassets/noa.pdf"
+        }
+      ]
+    },
+    "license": "All rights reserved",
+    "rights": "Patent rights held by assignee; licensing required for practice.",
+    "provenance": {
+      "version": 2,
+      "previousTokenUri": "ipfs://bafybeigdyrpatentassets/v1.json",
+      "updatedAt": "2025-09-18T12:34:56Z",
+      "updatedBy": "0x1234567890abcdef1234567890abcdef12345678"
+    },
+    "dataIntegrity": {
+      "contentHashSha256": "0x7b5a9b4b1e2a8f9c6d3e2c1a9f8b7e6d5c4b3a2f1e0d9c8b7a6f5e4d3c2b1a0",
+      "schemaVersion": "1.0.0"
+    },
+    "links": {
+      "whitepaper": "ipfs://bafybeigdyrpatentassets/whitepaper.pdf",
+      "repository": "https://github.com/liquid-ip/example-repo"
+    }
+  }
