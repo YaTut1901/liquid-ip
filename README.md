@@ -86,10 +86,7 @@ http://localhost:3000/debug
 - The router is pre-configured in the deploy script with the default `PoolKey` for the campaign’s pool.
 - Set `amountIn` in USDC base units (6 decimals) and a conservative `amountOutMinimum`.
 
-
-<video controls width="800" muted>
-  <source src="image/demo.mp4" type="video/mp4" />
-</video>
+![Demo](image/demo.gif)
 
 
 ## Rehypothecation Manager
