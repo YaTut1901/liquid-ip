@@ -21,6 +21,7 @@ This repository contains smart contracts, a Next.js frontend (Scaffold-ETH 2), a
 ## Install
 ```bash
 yarn install
+git submodule update --init --recursive
 ```
 
 
