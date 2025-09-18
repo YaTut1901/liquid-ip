@@ -1,80 +1,174 @@
-# 🏗 Scaffold-ETH 2
+## Liquid-IP Monorepo
 
-<h4 align="center">
-  <a href="https://docs.scaffoldeth.io">Documentation</a> |
-  <a href="https://scaffoldeth.io">Website</a>
-</h4>
+This repository contains smart contracts, a Next.js frontend (Scaffold-ETH 2), and a Go-based performer service to experiment with licensing, Uniswap v4 hooks, and off-chain metadata verification.
 
-🧪 An open-source, up-to-date toolkit for building decentralized applications (dapps) on the Ethereum blockchain. It's designed to make it easier for developers to create and deploy smart contracts and build user interfaces that interact with those contracts.
+![Architecture](image/architecture.png)
 
-⚙️ Built using NextJS, RainbowKit, Foundry, Wagmi, Viem, and Typescript.
+### Monorepo structure
+- `packages/foundry`: Solidity contracts, tests, and deployment scripts
+- `packages/nextjs`: Next.js app (Scaffold-ETH 2)
+- `packages/performer`: Go performer service for off-chain processing
 
-- ✅ **Contract Hot Reload**: Your frontend auto-adapts to your smart contract as you edit it.
-- 🪝 **[Custom hooks](https://docs.scaffoldeth.io/hooks/)**: Collection of React hooks wrapper around [wagmi](https://wagmi.sh/) to simplify interactions with smart contracts with typescript autocompletion.
-- 🧱 [**Components**](https://docs.scaffoldeth.io/components/): Collection of common web3 components to quickly build your frontend.
-- 🔥 **Burner Wallet & Local Faucet**: Quickly test your application with a burner wallet and local faucet.
-- 🔐 **Integration with Wallet Providers**: Connect to different wallet providers and interact with the Ethereum network.
 
-![Debug Contracts tab](https://github.com/scaffold-eth/scaffold-eth-2/assets/55535804/b237af0c-5027-4849-a5c1-2e31495cccb1)
+## Prerequisites
+- Node.js >= 20.18
+- Yarn (workspace) or Corepack
+- Foundry (`forge`, `cast`)
+- Anvil (ships with Foundry)
+- A mainnet RPC URL for forking (Alchemy/Infura/etc.)
 
-## Requirements
 
-Before you begin, you need to install the following tools:
-
-- [Node (>= v20.18.3)](https://nodejs.org/en/download/)
-- Yarn ([v1](https://classic.yarnpkg.com/en/docs/install/) or [v2+](https://yarnpkg.com/getting-started/install))
-- [Git](https://git-scm.com/downloads)
-
-## Quickstart
-
-To get started with Scaffold-ETH 2, follow the steps below:
-
-1. Install dependencies if it was skipped in CLI:
-
-```
-cd my-dapp-example
+## Install
+```bash
 yarn install
 ```
 
-2. Run a local network in the first terminal:
 
+## Running against a forked mainnet
+1) Start a mainnet fork on port 8545
+```bash
+# Config contains valid mainnet RPC endpoint
+yarn fork
 ```
-yarn chain
-```
 
-This command starts a local Ethereum network using Foundry. The network runs on your local machine and can be used for testing and development. You can customize the network configuration in `packages/foundry/foundry.toml`.
-
-3. On a second terminal, deploy the test contract:
-
-```
+2) Deploy contracts to the fork
+```bash
+# Uses packages/foundry/script/Deploy.s.sol
 yarn deploy
 ```
 
-This command deploys a test smart contract to the local network. The contract is located in `packages/foundry/contracts` and can be modified to suit your needs. The `yarn deploy` command uses the deploy script located in `packages/foundry/script` to deploy the contract to the network. You can also customize the deploy script.
+Notes
+- The deploy script mints USDC to the deployer on the fork via FFI using `cast` and configures a Uniswap v4 pool with the `PublicLicenseHook`.
+- A minimal Task Mailbox mock is used locally so verifier tasks complete instantly with VALID status.
+- Deployment addresses and ABIs are written to `packages/nextjs/contracts/deployedContracts.ts`.
 
-4. On a third terminal, start your NextJS app:
 
+## Running tests
+All tests are Foundry tests under `packages/foundry/test`.
+
+Types of tests
+- Unit tests: configuration and hook internals
+- Integration tests: end-to-end flows, e.g. Uniswap v4 plumbing and `SimpleV4Router`
+
+Run tests
+```bash
+yarn test
 ```
+
+## Frontend: test swaps with SimpleV4Router
+1) Ensure the fork (31337) is running and contracts are deployed (`yarn deploy`).
+
+2) Start the frontend
+```bash
 yarn start
 ```
 
-Visit your app on: `http://localhost:3000`. You can interact with your smart contract using the `Debug Contracts` page. You can tweak the app config in `packages/nextjs/scaffold.config.ts`.
+3) Connect your wallet to `localhost:31337` and open the debug UI
+```
+http://localhost:3000/debug
+```
 
-Run smart contract test with `yarn foundry:test`
+4) Authenticate as the deployer in the UI (local dev only)
+- Import this deployer private key into your wallet (e.g. MetaMask) while connected to the `localhost:31337` network:
+```
+0x879c8f8b406951ff3d1384017fe6080db719649d946597ef10c038734772c95b
+```
 
-- Edit your smart contracts in `packages/foundry/contracts`
-- Edit your frontend homepage at `packages/nextjs/app/page.tsx`. For guidance on [routing](https://nextjs.org/docs/app/building-your-application/routing/defining-routes) and configuring [pages/layouts](https://nextjs.org/docs/app/building-your-application/routing/pages-and-layouts) checkout the Next.js documentation.
-- Edit your deployment scripts in `packages/foundry/script`
+5) Stake the Patent NFT into the Campaign Manager
+- In the debug page, open `PatentERC721` and call:
+  - `safeTransferFrom(<you>, <campaignManager>, 1)`
+- This stakes tokenId `1` and enables the campaign pool logic.
+
+6) Approve USDC for the `SimpleV4Router`
+- In the debug page, select the USDC contract (from deployed contracts) and call `approve(router, amount)` from the deployer account.
+
+7) Call `SimpleV4Router.swapExactInDefault(amountIn, amountOutMinimum)`
+- The router is pre-configured in the deploy script with the default `PoolKey` for the campaign’s pool.
+- Set `amountIn` in USDC base units (6 decimals) and a conservative `amountOutMinimum`.
 
 
-## Documentation
+[Demo video (WebM)](image/Screencast%20from%2019.09.25%2000:31:37.webm)
 
-Visit our [docs](https://docs.scaffoldeth.io) to learn how to start building with Scaffold-ETH 2.
+<video controls width="800" muted>
+  <source src="image/Screencast from 19.09.25 00:31:37.webm" type="video/webm" />
+  <!-- Optional MP4 fallback for broader compatibility -->
+  <!-- <source src="image/demo.mp4" type="video/mp4" /> -->
+  Your browser does not support embedded videos. Use the link above.
+</video>
 
-To know more about its features, check out our [website](https://scaffoldeth.io).
 
-## Contributing to Scaffold-ETH 2
+## Rehypothecation Manager
+The `RehypothecationManager` routes idle campaign proceeds into Aave v3 to earn yield during the campaign and returns principal plus accrued yield to the campaign owner after the campaign ends.
 
-We welcome contributions to Scaffold-ETH 2!
+What it manages
+- Per-pool, per-currency vaults keyed by Uniswap v4 `PoolId` and `Currency`
+- aToken balances attributed to each active campaign
+- Authorized hooks that are allowed to initialize and deposit on behalf of campaigns
 
-Please see [CONTRIBUTING.MD](https://github.com/scaffold-eth/scaffold-eth-2/blob/main/CONTRIBUTING.md) for more information and guidelines for contributing to Scaffold-ETH 2.
+Key functions
+- `authorizeHook(address)` / `revokeHook(address)`: Owner-managed allowlist of hook contracts
+- `initializeCampaign(PoolId, Currency, campaignOwner, campaignDuration)`: Creates an active vault; verifies Aave support
+- `deposit(PoolId, Currency, amount)`: Supplies ERC20 or ETH proceeds to Aave; allocates aTokens to the campaign
+- `withdrawCampaignFunds(PoolId, Currency)`: After end time, sends principal + yield to `campaignOwner` and closes the vault
+- `getAccruedYield(PoolId, Currency)`: View function to estimate yield accumulated so far
+
+Aave integration
+- Resolves aToken via `IPoolDataProvider.getReserveTokensAddresses`
+- Supplies ERC20 via `IPool.supply`
+- For native ETH currency, uses Aave’s Wrapped Token Gateway for deposit/withdraw
+
+Security/permissions
+- Only authorized hooks can initialize and deposit (`onlyAuthorizedHook`)
+- Only the designated `campaignOwner` can withdraw after the campaign ends
+
+Configured endpoints (mainnet fork)
+- Aave Pool, PoolDataProvider, and Wrapped Token Gateway are wired in the deploy script and can be adjusted in `packages/foundry/script/Deploy.s.sol`
+
+How to observe in the UI
+- Use the debug page to read vault state: call `getCampaignVault(poolId, currency)` and `getAccruedYield(poolId, currency)` on `RehypothecationManager`
+
+
+![Rehypothecation Flow](image/Rehypothecation.drawio.png)
+
+
+
+## Performer service (Go)
+The performer service handles off-chain processing (e.g., metadata retrieval/validation), and can be run locally for experimentation.
+
+Location
+- `packages/performer`
+
+Run locally
+```bash
+cd packages/performer
+go run ./cmd/performer
+# or build
+go build -o performer ./cmd/performer
+./performer
+```
+
+Docker
+```bash
+cd packages/performer
+docker build -t liquid-ip-performer .
+docker run --rm -it liquid-ip-performer
+```
+
+Configuration
+- Provide RPC, IPFS, and any credential/env settings as needed (see `packages/performer/README.md` or source). Adjust to your infra.
+
+
+## Common troubleshooting
+- USDC balance is zero after deploy on a fork
+  - Ensure the fork runs at `http://127.0.0.1:8545` and FFI is allowed; the deploy script uses `cast` FFI to mint USDC from admin role on the fork.
+- Frontend can’t find contracts
+  - Re-run `yarn deploy` to refresh `deployedContracts.ts`. If needed, regenerate ABIs/addresses with `node packages/foundry/scripts-js/generateTsAbis.js`.
+- Deployment script reverts trying to settle USDC balance
+  - After running a fork wait for 3-5 minutes - after all data fetch script can be run successfully
+
+
+## Development notes
+- Contracts use Solidity 0.8.27. Uniswap v4 periphery components that require 0.8.26, handled via per-file pragmas and `deployCode()` cheatcode.
+- Scaffold-ETH 2 patterns are used in the frontend (RainbowKit + wagmi). Prefer `useScaffoldReadContract` and `useScaffoldWriteContract` hooks for contract I/O.
+
+[scheme: on-chain components and data flow]

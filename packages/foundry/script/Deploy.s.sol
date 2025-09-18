@@ -25,7 +25,12 @@ import {IHooks} from "@v4-core/interfaces/IHooks.sol";
 
 interface IUSDC {
     function masterMinter() external view returns (address);
-    function configureMinter(address minter, uint256 minterAllowedAmount) external returns (bool);
+
+    function configureMinter(
+        address minter,
+        uint256 minterAllowedAmount
+    ) external returns (bool);
+
     function mint(address to, uint256 amount) external returns (bool);
 }
 
@@ -120,12 +125,9 @@ contract DeployScript is ScaffoldETHDeploy {
 
         _mintUSDCViaFFI(address(numeraire), deployer, 1_000_000 * 1e6);
 
-        {
-            uint256 bal = IERC20(address(numeraire)).balanceOf(deployer);
-            console.log("USDC balance (deployer) after mint:", bal);
-            if (bal >= 1_000) {
-                numeraire.transfer(address(licenseHook), 1_000);
-            }
+        uint256 bal = IERC20(address(numeraire)).balanceOf(deployer);
+        if (bal >= 1_000) {
+            numeraire.transfer(address(licenseHook), 1_000);
         }
 
         _logAndSave(address(numeraire), "USDC");
@@ -182,7 +184,11 @@ contract DeployScript is ScaffoldETHDeploy {
         simpleRouter.configureDefaultPoolKey(poolKey);
     }
 
-    function _mintUSDCViaFFI(address usdcToken, address recipient, uint256 amount) internal {
+    function _mintUSDCViaFFI(
+        address usdcToken,
+        address recipient,
+        uint256 amount
+    ) internal {
         IUSDC usdc = IUSDC(usdcToken);
         address mm = usdc.masterMinter();
         address tempMinter = 0x1111111111111111111111111111111111111111;
@@ -195,61 +201,86 @@ contract DeployScript is ScaffoldETHDeploy {
         // impersonate and fund masterMinter
         {
             string[] memory cmd = new string[](3);
-            cmd[0] = "bash"; cmd[1] = "-lc";
+            cmd[0] = "bash";
+            cmd[1] = "-lc";
             cmd[2] = string.concat(
-                "cast rpc anvil_impersonateAccount ", vm.toString(mm), " --rpc-url ", rpc
+                "cast rpc anvil_impersonateAccount ",
+                vm.toString(mm),
+                " --rpc-url ",
+                rpc
             );
             vm.ffi(cmd);
         }
         {
             string[] memory cmd = new string[](3);
-            cmd[0] = "bash"; cmd[1] = "-lc";
+            cmd[0] = "bash";
+            cmd[1] = "-lc";
             cmd[2] = string.concat(
-                "cast rpc anvil_setBalance ", vm.toString(mm), " 0xDE0B6B3A7640000 --rpc-url ", rpc
+                "cast rpc anvil_setBalance ",
+                vm.toString(mm),
+                " 0xDE0B6B3A7640000 --rpc-url ",
+                rpc
             );
             vm.ffi(cmd);
         }
         // configure tempMinter as minter from masterMinter
         {
             string[] memory cmd = new string[](3);
-            cmd[0] = "bash"; cmd[1] = "-lc";
+            cmd[0] = "bash";
+            cmd[1] = "-lc";
             cmd[2] = string.concat(
                 "cast send ",
                 vm.toString(usdcToken),
-                " \"configureMinter(address,uint256)\" ",
+                ' "configureMinter(address,uint256)" ',
                 vm.toString(tempMinter),
                 " 0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff ",
-                "--from ", vm.toString(mm), " --unlocked --rpc-url ", rpc
+                "--from ",
+                vm.toString(mm),
+                " --unlocked --rpc-url ",
+                rpc
             );
             vm.ffi(cmd);
         }
         // impersonate and fund tempMinter, then mint to recipient
         {
             string[] memory cmd = new string[](3);
-            cmd[0] = "bash"; cmd[1] = "-lc";
+            cmd[0] = "bash";
+            cmd[1] = "-lc";
             cmd[2] = string.concat(
-                "cast rpc anvil_impersonateAccount ", vm.toString(tempMinter), " --rpc-url ", rpc
+                "cast rpc anvil_impersonateAccount ",
+                vm.toString(tempMinter),
+                " --rpc-url ",
+                rpc
             );
             vm.ffi(cmd);
         }
         {
             string[] memory cmd = new string[](3);
-            cmd[0] = "bash"; cmd[1] = "-lc";
+            cmd[0] = "bash";
+            cmd[1] = "-lc";
             cmd[2] = string.concat(
-                "cast rpc anvil_setBalance ", vm.toString(tempMinter), " 0xDE0B6B3A7640000 --rpc-url ", rpc
+                "cast rpc anvil_setBalance ",
+                vm.toString(tempMinter),
+                " 0xDE0B6B3A7640000 --rpc-url ",
+                rpc
             );
             vm.ffi(cmd);
         }
         {
             string[] memory cmd = new string[](3);
-            cmd[0] = "bash"; cmd[1] = "-lc";
+            cmd[0] = "bash";
+            cmd[1] = "-lc";
             cmd[2] = string.concat(
                 "cast send ",
                 vm.toString(usdcToken),
-                " \"mint(address,uint256)\" ",
+                ' "mint(address,uint256)" ',
                 vm.toString(recipient),
-                " ", vm.toString(amount),
-                " --from ", vm.toString(tempMinter), " --unlocked --rpc-url ", rpc
+                " ",
+                vm.toString(amount),
+                " --from ",
+                vm.toString(tempMinter),
+                " --unlocked --rpc-url ",
+                rpc
             );
             vm.ffi(cmd);
         }
@@ -259,7 +290,6 @@ contract DeployScript is ScaffoldETHDeploy {
         console.log("USDC balance (recipient):", newBal);
         require(newBal >= amount, "USDC mint failed");
     }
-
 
     function _getSimpleConfig() internal view returns (bytes memory config) {
         uint8 ver = 1;
