@@ -19,7 +19,7 @@
 
 **The Problem**: According to WIPO, EPO, and USPTO databases, there are over 150,000 active refrigerator-related patents worldwide, with a typical fridge involving 150-300 patents. The current patent system is overly complex, expensive, and dominated by opaque lump-sum deals and defensive litigation.
 
-**Our Solution**: A smarter system that leverages decentralized infrastructure and smart contracts to enable real-time, usage-based licensing that is fair, scalable, and cost-effective.
+**Our Solution**: Our solution is a decentralized licensing framework that combines NFTs, ERC-20 tokens, and smart contracts to automate real-time, usage-based royalties. By leveraging DAOs and AMM-based pricing, it delivers a fair, scalable, and cost-effective way to manage and monetize IP rights globally.
 
 - 🔐 **"Vending Machine" License Distribution**: One-way purchase mechanism via Uniswap v4 hooks (no resale to avoid regulatory issues)
 - 🛡️ **Decentralized Patent Verification**: EigenLayer AVS validates patent metadata authenticity
