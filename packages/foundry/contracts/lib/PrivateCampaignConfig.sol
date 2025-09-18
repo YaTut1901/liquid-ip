@@ -76,6 +76,8 @@ import {InEuint32, InEuint128} from "@fhenixprotocol/cofhe-contracts/ICofhe.sol"
  * 
  * @custom:gas-optimization Uses assembly for efficient calldata reading without bounds checking
  */
+/// @title PrivateCampaignConfig
+/// @notice Packed-bytes reader/validator for private (encrypted) campaign configurations using COFHE types.
 library PrivateCampaignConfig {
     bytes8 internal constant CONFIG_SIGNATURE =
         bytes8(keccak256("PrivateCampaignConfig"));

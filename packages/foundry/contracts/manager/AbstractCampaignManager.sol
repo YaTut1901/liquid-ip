@@ -9,6 +9,8 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {Create2} from "@openzeppelin/contracts/utils/Create2.sol";
 import {LicenseERC20} from "../token/LicenseERC20.sol";
 
+/// @title AbstractCampaignManager
+/// @notice Base contract for campaign managers handling patent delegation, validation and shared utilities.
 abstract contract AbstractCampaignManager is ICampaignManager, Ownable {
     int24 public constant TICK_SPACING = 30;
 
@@ -34,11 +36,12 @@ abstract contract AbstractCampaignManager is ICampaignManager, Ownable {
         }
     }
 
+    /// @notice Accepts delegated patent NFTs and records delegation owner.
     function onERC721Received(
-        address operator,
+        address,
         address from,
         uint256 tokenId,
-        bytes calldata data
+        bytes calldata
     ) external returns (bytes4) {
         if (msg.sender != address(patentErc721)) {
             revert InvalidERC721();
@@ -49,14 +52,17 @@ abstract contract AbstractCampaignManager is ICampaignManager, Ownable {
         return this.onERC721Received.selector;
     }
 
+    /// @inheritdoc ICampaignManager
     function addAllowedNumeraire(IERC20 numeraire) external onlyOwner {
         allowedNumeraires[numeraire] = true;
     }
 
+    /// @inheritdoc ICampaignManager
     function removeAllowedNumeraire(IERC20 numeraire) external onlyOwner {
         allowedNumeraires[numeraire] = false;
     }
 
+    /// @inheritdoc ICampaignManager
     function retrieve(uint256 patentId) external {
         require(
             block.timestamp > campaignEndTimestamp[patentId],
@@ -76,12 +82,13 @@ abstract contract AbstractCampaignManager is ICampaignManager, Ownable {
         bytes calldata params
     ) external virtual;
 
+    /// @dev Validates basic preconditions common to public and private campaign deployments.
     function _validateGeneral(
         string memory assetMetadataUri,
         uint256 patentId,
         bytes32 licenseSalt,
         IERC20 numeraire
-    ) internal {
+    ) internal view {
         // Check that the patent is already delegated
         require(delegatedPatents[patentId] != address(0), PatentNotDelegated());
         // Compute the address of the contract to be deployed and verify it's compatible with uni v4
@@ -102,6 +109,7 @@ abstract contract AbstractCampaignManager is ICampaignManager, Ownable {
         require(allowedNumeraires[numeraire], NumeraireNotAllowed());
     }
 
+    /// @dev Finds the closest tick aligned to TICK_SPACING.
     function _calculateClosestProperTick(
         int24 tick
     ) internal pure returns (int24) {
@@ -114,6 +122,7 @@ abstract contract AbstractCampaignManager is ICampaignManager, Ownable {
         return tick + remainder;
     }
 
+    /// @dev Adjusts a desired per-epoch tick range so that the total range across epochs aligns to spacing.
     function _calculateClosestProperTickRange(
         int24 epochTickRange,
         uint24 totalEpochs

@@ -18,6 +18,10 @@ import {TransientStateLibrary} from "@v4-core/libraries/TransientStateLibrary.so
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {LicenseERC20} from "../token/LicenseERC20.sol";
 
+/// @title AbstractLicenseHook
+/// @notice Base Uniswap v4 hook that orchestrates epoch-based liquidity allocation and rehypothecation.
+/// @dev Concrete implementations provide config parsing and epoch lifecycle. Handles currency deltas and deposits
+///      proceeds to {IRehypothecationManager} when configured.
 abstract contract AbstractLicenseHook is BaseHook, Ownable {
     using SafeCastLib for uint128;
     using TransientStateLibrary for IPoolManager;
@@ -50,6 +54,7 @@ abstract contract AbstractLicenseHook is BaseHook, Ownable {
         rehypothecationManager = _rehypothecationManager;
     }
 
+    /// @notice Declares hook permissions for Uniswap v4.
     function getHookPermissions()
         public
         pure
@@ -76,6 +81,9 @@ abstract contract AbstractLicenseHook is BaseHook, Ownable {
             });
     }
 
+    /// @notice Initializes per-pool state using an implementation-specific `state` blob.
+    /// @param poolKey The pool key to initialize state for.
+    /// @param state Encoded configuration bytes understood by the derived contract.
     function initializeState(
         PoolKey memory poolKey,
         bytes calldata state
@@ -87,11 +95,13 @@ abstract contract AbstractLicenseHook is BaseHook, Ownable {
         emit PoolStateInitialized(poolKey.toId());
     }
 
+    /// @dev Implementation-specific state initialization.
     function _initializeState(
         PoolKey memory poolKey,
         bytes calldata state
     ) internal virtual {}
 
+    /// @dev Computes liquidity delta for a given amount and tick range.
     function _computeLiquidity(
         int24 startingTick,
         int24 endingTick,
@@ -119,11 +129,13 @@ abstract contract AbstractLicenseHook is BaseHook, Ownable {
                 .toInt256();
     }
 
+    /// @dev Settles or takes currency deltas and records pending amounts for rehypothecation.
     function _handleDeltas(PoolKey memory key, uint16 epochIndex) internal {
         _handleDelta(key, key.currency0, epochIndex); 
         _handleDelta(key, key.currency1, epochIndex);
     }
 
+    /// @dev Handles a single currency delta: settles negatives to pool and takes positives into hook balance.
     function _handleDelta(PoolKey memory key, Currency currency, uint16 epochIndex) internal {
         int256 delta = poolManager.currencyDelta(address(this), currency);
 
@@ -141,6 +153,7 @@ abstract contract AbstractLicenseHook is BaseHook, Ownable {
         }
     }
 
+    /// @dev Deposits pending proceeds for a given epoch and currency into the rehypothecation manager.
     function _rehypothecation(
         PoolId poolId,
         uint16 epochIndex,
@@ -164,8 +177,9 @@ abstract contract AbstractLicenseHook is BaseHook, Ownable {
         }
     }
 
+    /// @inheritdoc BaseHook
     function _beforeAddLiquidity(
-        address sender,
+        address,
         PoolKey calldata,
         ModifyLiquidityParams calldata,
         bytes calldata
@@ -173,8 +187,9 @@ abstract contract AbstractLicenseHook is BaseHook, Ownable {
         revert ModifyingLiquidityNotAllowed();
     }
 
+    /// @inheritdoc BaseHook
     function _beforeRemoveLiquidity(
-        address sender,
+        address,
         PoolKey calldata,
         ModifyLiquidityParams calldata,
         bytes calldata
@@ -182,6 +197,7 @@ abstract contract AbstractLicenseHook is BaseHook, Ownable {
         revert ModifyingLiquidityNotAllowed();
     }
 
+    /// @inheritdoc BaseHook
     function _beforeDonate(
         address,
         PoolKey calldata,

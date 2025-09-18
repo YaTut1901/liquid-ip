@@ -19,6 +19,8 @@ import {InEuint32, InEuint256, InEuint128} from "@fhenixprotocol/cofhe-contracts
 import {AbstractCampaignManager} from "./AbstractCampaignManager.sol";
 import {PrivateCampaignConfig} from "../lib/PrivateCampaignConfig.sol";
 
+/// @title PrivateCampaignManager
+/// @notice Deploys campaigns using encrypted configuration parsed by PrivateLicenseHook.
 contract PublicCampaignManager is AbstractCampaignManager {
     using PrivateCampaignConfig for bytes;
 
@@ -41,6 +43,7 @@ contract PublicCampaignManager is AbstractCampaignManager {
         licenseHook = _licenseHook;
     }
 
+    /// @notice Initializes a campaign using encrypted config, deploys license token, mints to hook and initializes pool.
     function initialize(
         uint256 patentId,
         string memory assetMetadataUri,

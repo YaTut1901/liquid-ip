@@ -62,6 +62,8 @@ pragma solidity ^0.8.27;
  *
  * @custom:gas-optimization Uses assembly for efficient calldata reading without bounds checking
  */
+/// @title PublicCampaignConfig
+/// @notice Packed-bytes reader/validator for public (plaintext) campaign configurations.
 library PublicCampaignConfig {
     bytes8 internal constant CONFIG_SIGNATURE =
         bytes8(keccak256("PublicCampaignConfig"));

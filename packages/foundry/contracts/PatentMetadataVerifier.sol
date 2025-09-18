@@ -23,7 +23,11 @@ struct Request {
     string uri;
 }
 
-// owner is avs task hook
+/// @title PatentMetadataVerifier
+/// @notice Coordinates off-chain verification of patent metadata via EigenLayer AVS task mailbox.
+/// @dev The contract owner is expected to be the AVS task hook. Users or the Patent ERC721 contract
+///      can request verification using {verify}. Upon task result submission, this contract updates
+///      on-chain state and triggers mint/URI update on the Patent ERC721.
 contract PatentMetadataVerifier is Ownable, IAVSTaskHook {
     event ScanTaskCreated(
         bytes32 indexed taskHash,
@@ -61,11 +65,17 @@ contract PatentMetadataVerifier is Ownable, IAVSTaskHook {
         _;
     }
 
+    /// @notice Sets the Patent ERC721 contract to operate on.
+    /// @param _patentErc721 The Patent ERC721 contract instance.
     function setPatentErc721(PatentERC721 _patentErc721) external onlyOwner {
         patentErc721 = _patentErc721;
     }
 
-    // function to create a task to verify the metadata
+    /// @notice Creates a verification task for the provided token metadata.
+    /// @dev Stores the request and submits a task to the mailbox with encoded `(tokenId, uri)` payload.
+    /// @param tokenId The target Patent NFT token ID (minting if not yet minted).
+    /// @param request The request describing requester (mint vs update) and new URI.
+    /// @return taskHash The created task hash returned by the mailbox.
     function verify(
         uint256 tokenId,
         Request memory request
@@ -84,7 +94,9 @@ contract PatentMetadataVerifier is Ownable, IAVSTaskHook {
         emit ScanTaskCreated(taskHash, tokenId, request.uri);
     }
 
-    // function to aggregate required actions on metadata fields
+    /// @notice Validates the current metadata status for a token; re-requests verification if status is UNKNOWN.
+    /// @dev Reverts with {PatentIsInvalid} if the last metadata status is INVALID.
+    /// @param tokenId The Patent NFT token ID to validate.
     function validate(uint256 tokenId) external onlyConfigured {
         // this case should be impossible to reach
         if (metadata[tokenId].status == Status.UNKNOWN) {
@@ -101,8 +113,12 @@ contract PatentMetadataVerifier is Ownable, IAVSTaskHook {
         }
     }
 
+    /// @notice Callback invoked by the mailbox after a task result is submitted.
+    /// @dev Decodes `(tokenId, valid, meta)` from the task result. Emits WrongMetadataFormat if `valid` is false.
+    ///      If a mint request was pending (requester != 0), mints the token; otherwise updates the URI. Clears request.
+    /// @param taskHash The mailbox task hash whose result is being handled.
     function handlePostTaskResultSubmission(
-        address caller,
+        address,
         bytes32 taskHash
     ) external onlyConfigured {
         require(msg.sender == address(mailbox), "Only mailbox can call");
@@ -131,13 +147,16 @@ contract PatentMetadataVerifier is Ownable, IAVSTaskHook {
         delete requests[tokenId];
     }
 
+    /// @inheritdoc IAVSTaskHook
     function validatePreTaskCreation(
         address,
         ITaskMailboxTypes.TaskParams memory
     ) external view {}
 
+    /// @inheritdoc IAVSTaskHook
     function handlePostTaskCreation(bytes32) external {}
 
+    /// @inheritdoc IAVSTaskHook
     function validatePreTaskResultSubmission(
         address,
         bytes32,
@@ -145,6 +164,7 @@ contract PatentMetadataVerifier is Ownable, IAVSTaskHook {
         bytes memory
     ) external view {}
 
+    /// @inheritdoc IAVSTaskHook
     function calculateTaskFee(
         ITaskMailboxTypes.TaskParams memory
     ) external pure returns (uint96) {

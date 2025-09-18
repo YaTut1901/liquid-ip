@@ -23,6 +23,10 @@ import {CurrencySettler} from "@uniswap/v4-core/test/utils/CurrencySettler.sol";
 import {TickMath} from "@uniswap/v4-core/src/libraries/TickMath.sol";
 import {StateLibrary} from "@uniswap/v4-core/src/libraries/StateLibrary.sol";
 
+/// @title PrivateLicenseHook
+/// @notice Uniswap v4 hook that applies epoch-based positions where parameters are provided encrypted (FHE).
+/// @dev Defers swaps if decryption results are not yet available, anchoring price to the epoch starting tick,
+///      and deposits proceeds via rehypothecation. Uses FHE to store and decrypt epoch configs on-chain.
 contract PrivateLicenseHook is AbstractLicenseHook {
     using PrivateCampaignConfig for bytes;
     using CurrencySettler for Currency;
@@ -78,6 +82,7 @@ contract PrivateLicenseHook is AbstractLicenseHook {
         address _owner
     ) AbstractLicenseHook(_manager, _verifier, _rehypothecationManager, _owner) {}
 
+    /// @inheritdoc AbstractLicenseHook
     function getHookPermissions()
         public
         pure
@@ -104,6 +109,7 @@ contract PrivateLicenseHook is AbstractLicenseHook {
             });
     }
 
+    /// @inheritdoc AbstractLicenseHook
     function _initializeState(
         PoolKey memory poolKey,
         bytes calldata config
@@ -164,6 +170,7 @@ contract PrivateLicenseHook is AbstractLicenseHook {
         return BaseHook.beforeInitialize.selector;
     }
 
+    /// @inheritdoc BaseHook
     function _beforeSwap(
         address sender,
         PoolKey calldata key,
@@ -268,6 +275,7 @@ contract PrivateLicenseHook is AbstractLicenseHook {
         );
     }
 
+    /// @dev Computes epoch starting tick as the max upper tick among positions in the epoch.
     function _findEpochStartingTick(
         PoolId poolId,
         uint8 numPositions,
@@ -287,6 +295,7 @@ contract PrivateLicenseHook is AbstractLicenseHook {
         return maxUpper;
     }
 
+    /// @dev Anchors price toward target tick using a small liquidity position and a directional swap.
     function _adjustTick(
         PoolKey memory key,
         PoolId poolId,
@@ -371,6 +380,7 @@ contract PrivateLicenseHook is AbstractLicenseHook {
         isAnchoring[poolId] = false;
     }
 
+    /// @dev Floors to the nearest tick aligned to spacing, handling negative numbers correctly.
     function _alignToSpacing(int24 tick, int24 spacing) internal pure returns (int24) {
         int24 quotient = tick / spacing;
         int24 remainder = tick % spacing;
@@ -380,6 +390,7 @@ contract PrivateLicenseHook is AbstractLicenseHook {
         return quotient * spacing;
     }
 
+    /// @dev Executes any swap that was deferred while waiting for decryption.
     function _executePendingSwaps(PoolId poolId, PoolKey memory key) internal {
         PendingSwap storage swap = pendingSwaps[poolId];
 
@@ -403,6 +414,7 @@ contract PrivateLicenseHook is AbstractLicenseHook {
         delete pendingSwaps[poolId];
     }
 
+    /// @dev Stores a swap for later execution and mints claim tokens for numeraire specified by user.
     function _savePendingSwap(
         PoolId poolId,
         address sender,
@@ -420,6 +432,7 @@ contract PrivateLicenseHook is AbstractLicenseHook {
         pendingSwaps[poolId] = PendingSwap({sender: sender, params: params});
     }
 
+    /// @dev Requests decryptions for all encrypted fields in the epoch positions.
     function _requestDecryption(PoolId poolId, uint16 epochIndex) internal {
         Epoch memory epoch = epochs[poolId][epochIndex];
 
@@ -436,7 +449,7 @@ contract PrivateLicenseHook is AbstractLicenseHook {
         isDecryptionRequested[poolId][epochIndex] = true;
     }
 
-    // checks the last requested field on last position of epoch, assuming that decryption of all types takes constant time
+    /// @dev Checks readiness by probing the last requested field of the last position of the epoch.
     function _isDecryptionResultReady(
         PoolId poolId,
         uint16 epochIndex
@@ -452,6 +465,7 @@ contract PrivateLicenseHook is AbstractLicenseHook {
         return ready;
     }
 
+    /// @dev Applies all decrypted positions for the current epoch to the pool.
     function _applyNewPositions(
         PoolKey memory key,
         PoolId poolId,
@@ -495,6 +509,7 @@ contract PrivateLicenseHook is AbstractLicenseHook {
         isEpochInitialized[poolId][epochIndex] = true;
     }
 
+    /// @dev Removes positions of previous epochs and handles deltas and rehypothecation for each.
     function _cleanUpOldPositions(
         PoolKey memory key,
         PoolId poolId,
@@ -548,6 +563,7 @@ contract PrivateLicenseHook is AbstractLicenseHook {
         }
     }
 
+    /// @dev Determines the current epoch index based on timestamps.
     function _calculateCurrentEpochIndex(
         PoolId poolId
     ) internal view returns (uint16) {

@@ -14,6 +14,8 @@ import {TickMath} from "@v4-core/libraries/TickMath.sol";
 import {AbstractCampaignManager} from "./AbstractCampaignManager.sol";
 import {PublicCampaignConfig} from "../lib/PublicCampaignConfig.sol";
 
+/// @title PublicCampaignManager
+/// @notice Deploys campaigns with plaintext public configuration; seeds pool and initializes hook state.
 contract PublicCampaignManager is AbstractCampaignManager {
     using PublicCampaignConfig for bytes;
 
@@ -36,6 +38,7 @@ contract PublicCampaignManager is AbstractCampaignManager {
         licenseHook = _licenseHook;
     }
 
+    /// @notice Initializes a campaign using public config, deploys license token, mints to hook and initializes pool.
     function initialize(
         uint256 patentId,
         string memory assetMetadataUri,
@@ -73,6 +76,7 @@ contract PublicCampaignManager is AbstractCampaignManager {
         emit CampaignInitialized(patentId, address(license), poolKey.toId());
     }
 
+    /// @dev Validates ticks and ranges in the provided public campaign config.
     function _validateCampaignConfig(
         bytes calldata campaignConfig
     ) internal view {

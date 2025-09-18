@@ -16,6 +16,10 @@ import {Currency} from "@uniswap/v4-core/src/types/Currency.sol";
 import {StateLibrary} from "@uniswap/v4-core/src/libraries/StateLibrary.sol";
 import {TickMath} from "@v4-core/libraries/TickMath.sol";
 
+/// @title PublicLicenseHook
+/// @notice Uniswap v4 hook that applies epoch-based positions with plaintext configuration.
+/// @dev Reads positions and epoch timing from a packed public config, anchors price each epoch,
+///      and deposits proceeds via rehypothecation when configured.
 contract PublicLicenseHook is AbstractLicenseHook {
     using PublicCampaignConfig for bytes;
 
@@ -54,6 +58,7 @@ contract PublicLicenseHook is AbstractLicenseHook {
         address _owner
     ) AbstractLicenseHook(_manager, _verifier, _rehypothecationManager, _owner) {}
 
+    /// @inheritdoc AbstractLicenseHook
     function _initializeState(
         PoolKey memory poolKey,
         bytes calldata config
@@ -135,8 +140,9 @@ contract PublicLicenseHook is AbstractLicenseHook {
         return BaseHook.beforeInitialize.selector;
     }
 
+    /// @inheritdoc BaseHook
     function _beforeSwap(
-        address sender,
+        address,
         PoolKey calldata key,
         SwapParams calldata params,
         bytes calldata
@@ -199,6 +205,7 @@ contract PublicLicenseHook is AbstractLicenseHook {
         );
     }
 
+    /// @dev Anchors price toward target tick using a small liquidity position and a directional swap.
     function _adjustTick(
         PoolKey memory key,
         PoolId poolId,
@@ -283,6 +290,7 @@ contract PublicLicenseHook is AbstractLicenseHook {
         isAnchoring[poolId] = false;
     }
 
+    /// @dev Floors to the nearest tick aligned to spacing, handling negative numbers correctly.
     function _alignToSpacing(int24 tick, int24 spacing) internal pure returns (int24) {
         int24 quotient = tick / spacing;
         int24 remainder = tick % spacing;
@@ -292,6 +300,7 @@ contract PublicLicenseHook is AbstractLicenseHook {
         return quotient * spacing;
     }
 
+    /// @dev Applies all configured positions for the current epoch to the pool.
     function _applyNewPositions(
         PoolKey memory key,
         PoolId poolId,
@@ -318,6 +327,7 @@ contract PublicLicenseHook is AbstractLicenseHook {
         isEpochInitialized[poolId][epochIndex] = true;
     }
 
+    /// @dev Removes positions of previous epochs and handles deltas and rehypothecation for each.
     function _cleanUpOldPositions(
         PoolKey memory key,
         PoolId poolId,
@@ -353,6 +363,7 @@ contract PublicLicenseHook is AbstractLicenseHook {
         }
     }
 
+    /// @dev Determines the current epoch index based on timestamps.
     function _calculateCurrentEpochIndex(
         PoolId poolId
     ) internal view returns (uint16) {
