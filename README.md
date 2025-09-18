@@ -12,7 +12,7 @@ This repository contains smart contracts, a Next.js frontend (Scaffold-ETH 2), a
 
 ## Prerequisites
 - Node.js >= 20.18
-- Yarn (workspace) or Corepack
+- Yarn
 - Foundry (`forge`, `cast`)
 - Anvil (ships with Foundry)
 - A mainnet RPC URL for forking (Alchemy/Infura/etc.)
